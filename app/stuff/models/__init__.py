@@ -1,5 +1,5 @@
-from app.core.datebase import Base
-from .users import User
+from app.core.database import Base
+from .users import UserStuff
 from .roles import Role
 from .clubs import Club
 from .sections import Section

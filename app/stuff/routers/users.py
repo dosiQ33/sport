@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional
 
-from app.core.datebase import get_session
+from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
 from app.stuff.schemas.users import (
@@ -33,7 +33,6 @@ router = APIRouter(prefix="/users", tags=["users"])
 async def create_new_user(
     request: Request,
     user: UserCreate,
-    contact_init_data: str,
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
@@ -44,7 +43,7 @@ async def create_new_user(
             detail=f"User with this telegram_id {current_user.get('id')} already exists.",
         )
 
-    return await create_user(db, user, current_user, contact_init_data)
+    return await create_user(db, user, current_user)
 
 
 @router.get("/{user_id}", response_model=UserRead)

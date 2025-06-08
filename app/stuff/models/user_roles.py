@@ -9,7 +9,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.core.datebase import Base
+from app.core.database import Base
 
 
 class UserRole(Base):

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, JSON, BigInteger
 from sqlalchemy.sql import func
-from app.core.datebase import Base
+from app.core.database import Base
 
 
 class UserStudent(Base):

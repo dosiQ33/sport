@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from slowapi.errors import RateLimitExceeded
 
-from app.core.datebase import engine, Base
+from app.core.database import engine, Base
 from app.core.limits import limiter, rate_limit_handler
 from app.stuff.routers import users
 

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.stuff.models.users import UserStuff
 from app.core.config import TELEGRAM_BOT_TOKEN
 from app.core.telegram_auth import TelegramAuth
-from app.schemas.users import (
+from app.stuff.schemas.users import (
     UserCreate,
     UserUpdate,
     PreferencesUpdate,
@@ -69,12 +69,9 @@ async def get_users_paginated(
 
 
 async def create_user(
-    session: AsyncSession,
-    user: UserCreate,
-    current_user: Dict[str, Any],
-    contact_init_data: str,
+    session: AsyncSession, user: UserCreate, current_user: Dict[str, Any]
 ):
-    contact_data = telegram_auth.authenticate_contact_request(contact_init_data)
+    contact_data = telegram_auth.authenticate_contact_request(user.contact_init_data)
     phone_number = contact_data["contact"]["phone_number"]
 
     default_preferences = {

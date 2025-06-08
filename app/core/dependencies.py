@@ -4,13 +4,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import TELEGRAM_BOT_TOKEN
 from app.core.telegram_auth import TelegramAuth
 
-# HTTP Bearer scheme for Swagger UI
 security = HTTPBearer(
     scheme_name="Telegram InitData",
     description="Enter your Telegram Web App initData string",
 )
 
-# Initialize Telegram auth instance
 telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN)
 
 
@@ -27,10 +25,7 @@ async def get_current_user(
     3. The initData should look like: "user=...&chat_instance=...&auth_date=...&hash=..."
     """
     try:
-        # The initData comes in credentials.credentials
         init_data = credentials.credentials
-
-        # Authenticate and get full data (may include user, contact, etc.)
         auth_data = telegram_auth.authenticate(init_data)
 
         # For backward compatibility, return user data if present

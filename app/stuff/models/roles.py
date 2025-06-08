@@ -1,6 +1,6 @@
 import enum
 from sqlalchemy import Column, Integer, String, Enum
-from app.core.datebase import Base
+from app.core.database import Base
 
 
 class RoleType(str, enum.Enum):
