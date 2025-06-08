@@ -5,6 +5,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.database import engine, Base
 from app.core.limits import limiter, rate_limit_handler
 from app.stuff.routers import users
+from app.students.routers import users as student_users
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 # Include routers with API version prefix
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(student_users.router, prefix="/api/v1")
 
 
 @app.get("/")

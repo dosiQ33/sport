@@ -13,3 +13,8 @@ Base = declarative_base()
 async def get_session():
     async with async_session() as session:
         yield session
+
+
+# # Import all models to ensure they're registered with the Base
+# from app.stuff.models import UserStuff, Role, Club, Section, UserRole
+# from app.students.models.users import UserStudent
