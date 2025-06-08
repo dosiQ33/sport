@@ -16,7 +16,7 @@ class SectionBase(BaseModel):
     price: Optional[float] = None  # базовая стоимость
     duration_min: int = 60  # длительность занятия (по умолчанию 60)
 
-    coach_id_default: Optional[int] = None
+    coach_id: Optional[int] = None
     tags: list[str] = Field(default_factory=list)
 
     # JSON с расписанием (смотри пример в предыдущем ответе)
@@ -40,7 +40,7 @@ class SectionUpdate(BaseModel):
     capacity: Optional[int] = None
     price: Optional[float] = None
     duration_min: Optional[int] = None
-    coach_id_default: Optional[int] = None
+    coach_id: Optional[int] = None
     tags: Optional[list[str]] = None
     schedule: Optional[dict[str, Any]] = None
     active: Optional[bool] = None

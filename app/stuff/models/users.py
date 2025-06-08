@@ -20,9 +20,19 @@ class UserStuff(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    # Relationships
     roles = relationship(
         "UserRole",
         back_populates="user",
         cascade="all, delete",
         lazy="select",
+    )
+
+    # Add relationships for clubs and sections
+    owned_clubs = relationship(
+        "Club", foreign_keys="Club.owner_id", back_populates="owner"
+    )
+
+    coached_sections = relationship(
+        "Section", foreign_keys="Section.coach_id", back_populates="coach"
     )

@@ -23,8 +23,9 @@ class UserRole(Base):
     # Add auto-increment ID as primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
 
+    # Fixed foreign key references
     user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("user_stuff.id", ondelete="CASCADE"), nullable=False
     )
     club_id = Column(
         Integer, ForeignKey("clubs.id", ondelete="CASCADE"), nullable=False

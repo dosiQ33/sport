@@ -25,7 +25,7 @@ from app.stuff.crud.users import (
     get_user_preference,
 )
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/users", tags=["Stuff"])
 
 
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)

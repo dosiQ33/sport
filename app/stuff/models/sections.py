@@ -34,7 +34,7 @@ class Section(Base):
     price = Column(Numeric(10, 2), nullable=True)
     duration_min = Column(Integer, nullable=True, server_default=text("60"))
 
-    coach_id_default = Column(Integer, ForeignKey("users.id"), nullable=True)
+    coach_id = Column(Integer, ForeignKey("user_stuff.id"), nullable=True)
 
     tags = Column(JSON, nullable=True, default=list)  # ["boxing", "kids"]
     schedule = Column(JSON, nullable=True, default=dict)
@@ -47,3 +47,4 @@ class Section(Base):
 
     # relations
     club = relationship("Club", back_populates="sections")
+    coach = relationship("UserStuff", foreign_keys=[coach_id])
