@@ -1,66 +1,291 @@
 from datetime import datetime
 from typing import Any, Optional
+import re
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ClubBase(BaseModel):
-    """Общая часть, используемая в Create/Read."""
+    """Base club schema with common fields."""
 
-    name: str
-    description: Optional[str] = None
-    city: Optional[str] = None
-    address: Optional[str] = None
+    name: str = Field(
+        ..., min_length=2, max_length=100, description="Club name (2-100 characters)"
+    )
+    description: Optional[str] = Field(
+        None, max_length=1000, description="Club description"
+    )
+    city: Optional[str] = Field(
+        None, max_length=80, description="City where club is located"
+    )
+    address: Optional[str] = Field(None, max_length=255, description="Physical address")
 
-    logo_url: Optional[HttpUrl] = None
-    cover_url: Optional[HttpUrl] = None
+    logo_url: Optional[str] = Field(None, max_length=255, description="Logo image URL")
+    cover_url: Optional[str] = Field(
+        None, max_length=255, description="Cover image URL"
+    )
 
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    site_url: Optional[HttpUrl] = None
-    instagram_url: Optional[HttpUrl] = None
+    phone: Optional[str] = Field(
+        None, max_length=32, description="Contact phone number"
+    )
+    telegram_url: Optional[str] = Field(
+        None, max_length=255, description="Telegram channel/group URL"
+    )
+    instagram_url: Optional[str] = Field(
+        None, max_length=255, description="Instagram profile URL"
+    )
 
-    timezone: str = "Asia/Almaty"
-    currency: str = "KZT"
+    timezone: str = Field("Asia/Almaty", max_length=40, description="Club timezone")
+    currency: str = Field("KZT", max_length=8, description="Club currency")
 
-    extra: dict[str, Any] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(
+        default_factory=dict, description="Additional club metadata"
+    )
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Club name cannot be empty")
+
+        # Allow letters, numbers, spaces, and basic punctuation
+        if not re.match(r"^[a-zA-Zа-яА-Я0-9\s\-_.()]+$", v):
+            raise ValueError("Club name contains invalid characters")
+
+        return v.strip()
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v):
+        if v:
+            # Basic phone validation - remove spaces and check format
+            clean_phone = re.sub(r"\s+", "", v)
+            if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
+                raise ValueError("Invalid phone number format")
+        return v
+
+    @field_validator("telegram_url")
+    @classmethod
+    def validate_telegram_url(cls, v):
+        if v:
+            if not (
+                v.startswith("https://t.me/") or v.startswith("https://telegram.me/")
+            ):
+                raise ValueError(
+                    "Telegram URL must start with https://t.me/ or https://telegram.me/"
+                )
+        return v
+
+    @field_validator("instagram_url")
+    @classmethod
+    def validate_instagram_url(cls, v):
+        if v:
+            if not v.startswith("https://instagram.com/") and not v.startswith(
+                "https://www.instagram.com/"
+            ):
+                raise ValueError(
+                    "Instagram URL must start with https://instagram.com/ or https://www.instagram.com/"
+                )
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v):
+        # Basic timezone validation
+        valid_timezones = [
+            "Asia/Almaty",
+            "Asia/Aqtobe",
+            "Asia/Aqtau",
+            "Asia/Oral",
+            "Asia/Qyzylorda",
+            "Europe/Moscow",
+            "Europe/Kiev",
+            "Asia/Tashkent",
+            "Asia/Bishkek",
+            "UTC",
+            "UTC+1",
+            "UTC+2",
+            "UTC+3",
+            "UTC+4",
+            "UTC+5",
+            "UTC+6",
+        ]
+        if v not in valid_timezones:
+            raise ValueError(
+                f"Unsupported timezone. Supported: {', '.join(valid_timezones)}"
+            )
+        return v
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, v):
+        valid_currencies = ["KZT", "USD", "EUR", "RUB", "UZS", "KGS"]
+        if v not in valid_currencies:
+            raise ValueError(
+                f"Unsupported currency. Supported: {', '.join(valid_currencies)}"
+            )
+        return v
 
 
-# ---------- CRUD-схемы ----------
 class ClubCreate(ClubBase):
-    """POST /clubs/  — нужен только name, всё остальное опционально."""
+    """Schema for creating a new club."""
+
+    # All fields inherited from ClubBase, name is required, others optional
+    pass
 
 
 class ClubUpdate(BaseModel):
-    """PATCH /clubs/{id} — все поля опциональны."""
+    """Schema for updating club details - all fields optional."""
 
-    name: Optional[str] = None
-    description: Optional[str] = None
-    city: Optional[str] = None
-    address: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=2, max_length=100)
+    description: Optional[str] = Field(None, max_length=1000)
+    city: Optional[str] = Field(None, max_length=80)
+    address: Optional[str] = Field(None, max_length=255)
 
-    logo_url: Optional[HttpUrl] = None
-    cover_url: Optional[HttpUrl] = None
+    logo_url: Optional[str] = Field(None, max_length=255)
+    cover_url: Optional[str] = Field(None, max_length=255)
 
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    site_url: Optional[HttpUrl] = None
-    instagram_url: Optional[HttpUrl] = None
+    phone: Optional[str] = Field(None, max_length=32)
+    telegram_url: Optional[str] = Field(None, max_length=255)
+    instagram_url: Optional[str] = Field(None, max_length=255)
 
-    timezone: Optional[str] = None
-    currency: Optional[str] = None
+    timezone: Optional[str] = Field(None, max_length=40)
+    currency: Optional[str] = Field(None, max_length=8)
 
     extra: Optional[dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+    # Same validators as ClubBase but for optional fields
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if v is not None:
+            if not v or not v.strip():
+                raise ValueError("Club name cannot be empty")
+            if not re.match(r"^[a-zA-Zа-яА-Я0-9\s\-_.()]+$", v):
+                raise ValueError("Club name contains invalid characters")
+            return v.strip()
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v):
+        if v:
+            clean_phone = re.sub(r"\s+", "", v)
+            if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
+                raise ValueError("Invalid phone number format")
+        return v
+
+    @field_validator("telegram_url")
+    @classmethod
+    def validate_telegram_url(cls, v):
+        if v:
+            if not (
+                v.startswith("https://t.me/") or v.startswith("https://telegram.me/")
+            ):
+                raise ValueError(
+                    "Telegram URL must start with https://t.me/ or https://telegram.me/"
+                )
+        return v
+
+    @field_validator("instagram_url")
+    @classmethod
+    def validate_instagram_url(cls, v):
+        if v:
+            if not v.startswith("https://instagram.com/") and not v.startswith(
+                "https://www.instagram.com/"
+            ):
+                raise ValueError(
+                    "Instagram URL must start with https://instagram.com/ or https://www.instagram.com/"
+                )
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v):
+        if v is not None:
+            valid_timezones = [
+                "Asia/Almaty",
+                "Asia/Aqtobe",
+                "Asia/Aqtau",
+                "Asia/Oral",
+                "Asia/Qyzylorda",
+                "Europe/Moscow",
+                "Europe/Kiev",
+                "Asia/Tashkent",
+                "Asia/Bishkek",
+                "UTC",
+                "UTC+1",
+                "UTC+2",
+                "UTC+3",
+                "UTC+4",
+                "UTC+5",
+                "UTC+6",
+            ]
+            if v not in valid_timezones:
+                raise ValueError(
+                    f"Unsupported timezone. Supported: {', '.join(valid_timezones)}"
+                )
+        return v
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, v):
+        if v is not None:
+            valid_currencies = ["KZT", "USD", "EUR", "RUB", "UZS", "KGS"]
+            if v not in valid_currencies:
+                raise ValueError(
+                    f"Unsupported currency. Supported: {', '.join(valid_currencies)}"
+                )
+        return v
+
+
+class ClubOwnerInfo(BaseModel):
+    """Basic owner information for club response."""
+
+    id: int
+    first_name: str
+    last_name: Optional[str] = None
+    username: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ClubRead(ClubBase):
-    """Ответ API."""
+    """Schema for club response with additional metadata."""
 
     id: int
     owner_id: Optional[int] = None
+    owner: Optional[ClubOwnerInfo] = None
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ClubListResponse(BaseModel):
+    """Response schema for paginated club list."""
+
+    clubs: list[ClubRead]
+    total: int = Field(..., ge=0, description="Total number of clubs")
+    page: int = Field(..., ge=1, description="Current page number")
+    size: int = Field(..., ge=1, le=50, description="Number of items per page")
+    pages: int = Field(..., ge=1, description="Total number of pages")
+    filters: Optional[dict[str, Any]] = Field(None, description="Applied filters")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ClubStats(BaseModel):
+    """Club statistics schema."""
+
+    id: int
+    name: str
+    total_sections: int = 0
+    total_coaches: int = 0
+    total_students: int = 0
+    active_sections: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
