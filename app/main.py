@@ -7,6 +7,7 @@ from app.core.limits import limiter, rate_limit_handler
 from app.stuff.routers import users as stuff_users
 from app.stuff.routers import clubs as stuff_clubs
 from app.students.routers import users as student_users
+from app.stuff.routers import sections as stuff_sections
 
 
 @asynccontextmanager
@@ -33,6 +34,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.include_router(stuff_users.router, prefix="/api/v1")
 app.include_router(stuff_clubs.router, prefix="/api/v1")
 app.include_router(student_users.router, prefix="/api/v1")
+app.include_router(stuff_sections.router, prefix="/api/v1")
 
 
 @app.get("/")
