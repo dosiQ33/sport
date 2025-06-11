@@ -28,14 +28,10 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://training-tracker-mini-app.vercel.app",
-        "https://web.telegram.org",
-        "https://t.me",
-    ],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
 )
 
 # Add rate limiter to app state
