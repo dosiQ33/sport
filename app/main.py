@@ -31,6 +31,7 @@ app.add_middleware(
     allow_origins=[
         "https://training-tracker-mini-app.vercel.app",
         "https://web.telegram.org",
+        "https://t.me",
     ],
     allow_methods=["*"],
     allow_headers=["*"],
