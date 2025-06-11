@@ -36,16 +36,13 @@ app.state.limiter = limiter
 # Add rate limit exception handler
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
-# CORS middleware
+# CORS middleware - обновленный с вашим доменом
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://training-tracker-mini-app.vercel.app",
-        "https://web.telegram.org",
-    ],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
 )
 
 
@@ -81,6 +78,7 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/health",
+        "ssl": "enabled",
     }
 
 
@@ -89,4 +87,4 @@ async def health_check():
     """
     Health check endpoint
     """
-    return {"status": "healthy", "service": "training-mini-app-api"}
+    return {"status": "healthy", "service": "training-mini-app-api", "ssl": "enabled"}
