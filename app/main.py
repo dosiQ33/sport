@@ -1,7 +1,8 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+import logging
+from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 from slowapi.errors import RateLimitExceeded
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import engine, Base
 from app.core.limits import limiter, rate_limit_handler
@@ -9,6 +10,10 @@ from app.stuff.routers import users as stuff_users
 from app.stuff.routers import clubs as stuff_clubs
 from app.students.routers import users as student_users
 from app.stuff.routers import sections as stuff_sections
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -25,20 +30,37 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
+# Add rate limiter to app state
+app.state.limiter = limiter
+
+# Add rate limit exception handler
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=False,
+    expose_headers=["*"],
 )
 
-# Add rate limiter to app state
-app.state.limiter = limiter
 
-# Add rate limit exception handler
-app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+# Middleware для логирования запросов
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"🔍 Request URL: {request.url}")
+    logger.info(f"🌐 Origin: {request.headers.get('origin')}")
+    logger.info(f"🤖 User-Agent: {request.headers.get('user-agent')}")
+    logger.info(f"🔗 Referer: {request.headers.get('referer')}")
+    logger.info(f"📱 Method: {request.method}")
+
+    response = await call_next(request)
+
+    logger.info(f"✅ Response Status: {response.status_code}")
+    return response
+
 
 # Include routers with API version prefix
 app.include_router(stuff_users.router, prefix="/api/v1")
