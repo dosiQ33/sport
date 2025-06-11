@@ -28,7 +28,10 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://training-tracker-mini-app.vercel.app"],
+    allow_origins=[
+        "https://training-tracker-mini-app.vercel.app",
+        "https://web.telegram.org",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
