@@ -39,11 +39,13 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://training-tracker-mini-app.vercel.app",
+        "https://web.telegram.org",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=False,
-    expose_headers=["*"],
+    allow_credentials=True,
 )
 
 
