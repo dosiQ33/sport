@@ -81,43 +81,43 @@ dev-shell:
 prod-up:
 	@echo "🚀 Запуск production среды..."
 	@echo "🔍 Проверка изменений..."
-	docker compose -f docker compose.prod.yml build
-	docker compose -f docker compose.prod.yml up -d
+	docker compose -f docker-compose.prod.yml build
+	docker compose -f docker-compose.prod.yml up -d
 	@echo "✅ Production среда запущена!"
 	@echo "🌐 API доступен на: https://api.tensu.kz"
 
 prod-up-fast:
 	@echo "⚡ Быстрый запуск production среды (без пересборки)..."
-	docker compose -f docker compose.prod.yml up -d
+	docker compose -f docker-compose.prod.yml up -d
 	@echo "✅ Production среда запущена!"
 
 prod-down:
 	@echo "🛑 Остановка production среды..."
-	docker compose -f docker compose.prod.yml down
+	docker compose -f docker-compose.prod.yml down
 
 prod-restart:
 	@echo "🔄 Перезапуск production среды..."
-	docker compose -f docker compose.prod.yml restart
+	docker compose -f docker-compose.prod.yml restart
 
 prod-logs:
-	docker compose -f docker compose.prod.yml logs -f
+	docker compose -f docker-compose.prod.yml logs -f
 
 prod-logs-api:
-	docker compose -f docker compose.prod.yml logs -f api
+	docker compose -f docker-compose.prod.yml logs -f api
 
 prod-logs-nginx:
-	docker compose -f docker compose.prod.yml logs -f nginx
+	docker compose -f docker-compose.prod.yml logs -f nginx
 
 prod-build:
 	@echo "🔨 Пересборка production среды..."
-	docker compose -f docker compose.prod.yml build --no-cache
-	docker compose -f docker compose.prod.yml up -d
+	docker compose -f docker-compose.prod.yml build --no-cache
+	docker compose -f docker-compose.prod.yml up -d
 
 prod-rebuild:
 	@echo "🔨 Полная пересборка production среды..."
-	docker compose -f docker compose.prod.yml down
-	docker compose -f docker compose.prod.yml build --no-cache
-	docker compose -f docker compose.prod.yml up -d
+	docker compose -f docker-compose.prod.yml down
+	docker compose -f docker-compose.prod.yml build --no-cache
+	docker compose -f docker-compose.prod.yml up -d
 
 # SSL setup
 setup-ssl:
@@ -128,8 +128,8 @@ setup-ssl:
 # Очистка
 clean:
 	@echo "🧹 Очистка всех контейнеров и volumes..."
-	docker compose -f docker compose.dev.yml down -v --remove-orphans 2>/dev/null || true
-	docker compose -f docker compose.prod.yml down -v --remove-orphans 2>/dev/null || true
+	docker compose -f docker-compose.dev.yml down -v --remove-orphans 2>/dev/null || true
+	docker compose -f docker-compose.prod.yml down -v --remove-orphans 2>/dev/null || true
 	docker system prune -f
 	@echo "✅ Очистка завершена!"
 
