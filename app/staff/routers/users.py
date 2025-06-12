@@ -103,14 +103,25 @@ async def get_users_staff_list(
     )
 
 
-@router.get("/by-telegram-id/{telegram_id}", response_model=UserStaffRead)
-@limiter.limit("30/minute")
-async def get_user_staff_by_telegram_id_route(
-    request: Request, telegram_id: int, db: AsyncSession = Depends(get_session)
+@router.get("/me", response_model=UserStaffRead)
+@limiter.limit("60/minute")
+async def get_current_user_staff(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
 ):
-    user = await get_user_staff_by_telegram_id(db, telegram_id)
+    """
+    Get current authenticated staff user profile.
+
+    Returns the profile information of the currently authenticated staff user
+    based on the Telegram authentication token.
+    """
+    user = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Staff user profile not found. Please register first.",
+        )
     return user
 
 

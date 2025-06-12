@@ -42,8 +42,8 @@ app.add_middleware(
 # Include routers with API version prefix
 app.include_router(staff_users.router, prefix="/api/v1")
 app.include_router(staff_clubs.router, prefix="/api/v1")
-app.include_router(student_users.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
+app.include_router(student_users.router, prefix="/api/v1")
 
 
 @app.get("/")

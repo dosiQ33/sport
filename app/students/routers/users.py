@@ -103,14 +103,20 @@ async def get_user_students_list(
     )
 
 
-@router.get("/by-telegram-id/{telegram_id}", response_model=UserStudentRead)
-@limiter.limit("30/minute")
-async def get_user_student_by_telegram_id_route(
-    request: Request, telegram_id: int, db: AsyncSession = Depends(get_session)
+@router.get("/me", response_model=UserStudentRead)
+@limiter.limit("60/minute")
+async def get_current_user_student(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
 ):
-    user = await get_user_student_by_telegram_id(db, telegram_id)
+    """Get current authenticated student user profile."""
+    user = await get_user_student_by_telegram_id(db, current_user.get("id"))
     if user is None:
-        raise HTTPException(status_code=404, detail="Student not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Student user profile not found. Please register first.",
+        )
     return user
 
 
