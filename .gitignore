@@ -3,9 +3,45 @@ __pycache__/
 *.pyo
 *.pyd
 *.sqlite3
+
+# Environment files
 .env
 .env.*
+!.env.example
+
+# Virtual environments
 /venv
+/env
+/.venv
+
+# IDE files
 /.idea
 /.vscode
+*.swp
+*.swo
+
+# Database data
 postgres_data/
+postgres_data_dev/
+
+# SSL certificates
+/certbot/
+
+# Logs
+*.log
+/logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
