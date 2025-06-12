@@ -6,6 +6,8 @@ services:
     container_name: training_postgres
     env_file:
       - .env
+    ports:
+      - "5444:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
