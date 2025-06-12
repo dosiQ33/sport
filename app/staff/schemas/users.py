@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
-class UserStuffPreferences(BaseModel):
+class UserStaffPreferences(BaseModel):
     language: Optional[str] = Field("ru", pattern=r"^[a-z]{2}$")
     dark_mode: Optional[bool] = False
     notifications: Optional[bool] = True
@@ -18,7 +18,7 @@ class UserStuffPreferences(BaseModel):
         return v
 
 
-class UserStuffBase(BaseModel):
+class UserStaffBase(BaseModel):
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
 
     telegram_id: int = Field(..., gt=0, description="Telegram user ID must be positive")
@@ -42,14 +42,14 @@ class UserStuffBase(BaseModel):
         return v
 
 
-class UserStuffCreate(BaseModel):
+class UserStaffCreate(BaseModel):
     contact_init_data: str = Field(
         ..., description="Telegram contact initData string containing phone number"
     )
     preferences: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
-class UserStuffUpdate(BaseModel):
+class UserStaffUpdate(BaseModel):
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, max_length=50)
     phone_number: Optional[str] = Field(None, min_length=10, max_length=30)
@@ -66,7 +66,7 @@ class UserStuffUpdate(BaseModel):
         return v
 
 
-class UserStuffRead(UserStuffBase):
+class UserStaffRead(UserStaffBase):
     id: int
     created_at: datetime
     updated_at: datetime
@@ -75,23 +75,23 @@ class UserStuffRead(UserStuffBase):
         from_attributes = True
 
 
-class UserStuffFilters(BaseModel):
+class UserStaffFilters(BaseModel):
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
     phone_number: Optional[str] = Field(None, min_length=1, max_length=30)
     username: Optional[str] = Field(None, min_length=1, max_length=64)
 
 
-class UserStuffListResponse(BaseModel):
-    users: list[UserStuffRead]
+class UserStaffListResponse(BaseModel):
+    users: list[UserStaffRead]
     total: int = Field(..., ge=0)
     page: int = Field(..., ge=1)
     size: int = Field(..., ge=1, le=100)
     pages: int = Field(..., ge=1)
-    filters: Optional[UserStuffFilters] = None
+    filters: Optional[UserStaffFilters] = None
 
 
-class UserStuffPreferencesUpdate(BaseModel):
+class UserStaffPreferencesUpdate(BaseModel):
     language: Optional[str] = None
     dark_mode: Optional[bool] = None
     notifications: Optional[bool] = None

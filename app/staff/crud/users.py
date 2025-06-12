@@ -2,56 +2,56 @@ from typing import Any, Dict
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.stuff.models.users import UserStuff
+from app.staff.models.users import UserStaff
 from app.core.config import TELEGRAM_BOT_TOKEN
 from app.core.telegram_auth import TelegramAuth
-from app.stuff.schemas.users import (
-    UserStuffCreate,
-    UserStuffUpdate,
-    UserStuffPreferencesUpdate,
-    UserStuffFilters,
+from app.staff.schemas.users import (
+    UserStaffCreate,
+    UserStaffUpdate,
+    UserStaffPreferencesUpdate,
+    UserStaffFilters,
 )
 
 telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN)
 
 
-async def get_user_stuff_by_telegram_id(session: AsyncSession, telegram_id: int):
+async def get_user_staff_by_telegram_id(session: AsyncSession, telegram_id: int):
     result = await session.execute(
-        select(UserStuff).where(UserStuff.telegram_id == telegram_id)
+        select(UserStaff).where(UserStaff.telegram_id == telegram_id)
     )
     return result.scalar_one_or_none()
 
 
-async def get_user_stuff_by_id(session: AsyncSession, user_id: int):
-    result = await session.execute(select(UserStuff).where(UserStuff.id == user_id))
+async def get_user_staff_by_id(session: AsyncSession, user_id: int):
+    result = await session.execute(select(UserStaff).where(UserStaff.id == user_id))
     return result.scalar_one_or_none()
 
 
-async def get_users_stuff_paginated(
+async def get_users_staff_paginated(
     session: AsyncSession,
     skip: int = 0,
     limit: int = 10,
-    filters: UserStuffFilters = None,
+    filters: UserStaffFilters = None,
 ):
     # Базовый запрос
-    base_query = select(UserStuff)
-    count_query = select(func.count(UserStuff.id))
+    base_query = select(UserStaff)
+    count_query = select(func.count(UserStaff.id))
 
     # Применяем фильтры если они есть
     if filters:
         conditions = []
 
         if filters.first_name:
-            conditions.append(UserStuff.first_name.ilike(f"%{filters.first_name}%"))
+            conditions.append(UserStaff.first_name.ilike(f"%{filters.first_name}%"))
 
         if filters.last_name:
-            conditions.append(UserStuff.last_name.ilike(f"%{filters.last_name}%"))
+            conditions.append(UserStaff.last_name.ilike(f"%{filters.last_name}%"))
 
         if filters.phone_number:
-            conditions.append(UserStuff.phone_number.ilike(f"%{filters.phone_number}%"))
+            conditions.append(UserStaff.phone_number.ilike(f"%{filters.phone_number}%"))
 
         if filters.username:
-            conditions.append(UserStuff.username.ilike(f"%{filters.username}%"))
+            conditions.append(UserStaff.username.ilike(f"%{filters.username}%"))
 
         # Применяем условия к запросам
         if conditions:
@@ -64,15 +64,15 @@ async def get_users_stuff_paginated(
     total = total_result.scalar()
 
     # Получаем пагинированные результаты
-    query = base_query.offset(skip).limit(limit).order_by(UserStuff.created_at.desc())
+    query = base_query.offset(skip).limit(limit).order_by(UserStaff.created_at.desc())
     result = await session.execute(query)
     users = result.scalars().all()
 
     return users, total
 
 
-async def create_user_stuff(
-    session: AsyncSession, user: UserStuffCreate, current_user: Dict[str, Any]
+async def create_user_staff(
+    session: AsyncSession, user: UserStaffCreate, current_user: Dict[str, Any]
 ):
     contact_data = telegram_auth.authenticate_contact_request(user.contact_init_data)
     phone_number = contact_data["contact"]["phone_number"]
@@ -98,7 +98,7 @@ async def create_user_stuff(
     }
 
     try:
-        db_user = UserStuff(**user_data)
+        db_user = UserStaff(**user_data)
         session.add(db_user)
         await session.commit()
         await session.refresh(db_user)
@@ -108,10 +108,10 @@ async def create_user_stuff(
         raise
 
 
-async def update_user_stuff(
-    session: AsyncSession, telegram_id: int, user: UserStuffUpdate
+async def update_user_staff(
+    session: AsyncSession, telegram_id: int, user: UserStaffUpdate
 ):
-    db_user = await get_user_stuff_by_telegram_id(session, telegram_id)
+    db_user = await get_user_staff_by_telegram_id(session, telegram_id)
     if not db_user:
         return None
 
@@ -124,10 +124,10 @@ async def update_user_stuff(
     return db_user
 
 
-async def update_user_stuff_preferences(
-    session: AsyncSession, preferences: UserStuffPreferencesUpdate, telegram_id: int
+async def update_user_staff_preferences(
+    session: AsyncSession, preferences: UserStaffPreferencesUpdate, telegram_id: int
 ):
-    db_user = await get_user_stuff_by_telegram_id(session, telegram_id)
+    db_user = await get_user_staff_by_telegram_id(session, telegram_id)
     if not db_user:
         return None
 
@@ -143,10 +143,10 @@ async def update_user_stuff_preferences(
     return db_user
 
 
-async def get_user_stuff_preference(
+async def get_user_staff_preference(
     session: AsyncSession, telegram_id: int, preference_key: str
 ):
-    db_user = await get_user_stuff_by_telegram_id(session, telegram_id)
+    db_user = await get_user_staff_by_telegram_id(session, telegram_id)
     if not db_user or not db_user.preferences:
         return None
 

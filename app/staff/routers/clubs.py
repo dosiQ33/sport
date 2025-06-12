@@ -2,14 +2,13 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional, List
-from pydantic import BaseModel
 
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
-from app.stuff.schemas.clubs import ClubCreate, ClubUpdate, ClubRead, ClubListResponse
-from app.stuff.crud.users import get_user_stuff_by_telegram_id
-from app.stuff.crud.clubs import (
+from app.staff.schemas.clubs import ClubCreate, ClubUpdate, ClubRead, ClubListResponse
+from app.staff.crud.users import get_user_staff_by_telegram_id
+from app.staff.crud.clubs import (
     get_club_by_id,
     get_clubs_by_owner,
     get_clubs_paginated,
@@ -44,15 +43,15 @@ async def create_new_club(
     - **currency**: Club currency (default: KZT)
     """
     # Get user from database to ensure they exist as staff
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(
             status_code=404,
             detail="Staff user not found. Please register as staff first.",
         )
 
     try:
-        db_club = await create_club(db, club, user_stuff.id)
+        db_club = await create_club(db, club, user_staff.id)
         return db_club
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -114,11 +113,11 @@ async def get_my_clubs(
     """
     Get all clubs owned by the authenticated user.
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
-    clubs = await get_clubs_by_owner(db, user_stuff.id)
+    clubs = await get_clubs_by_owner(db, user_staff.id)
     return clubs
 
 
@@ -155,19 +154,19 @@ async def update_club_details(
     - **club_id**: Unique club identifier
     - All fields are optional in update
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     # Check if user has permission to update this club
-    has_permission = await check_user_club_permission(db, user_stuff.id, club_id)
+    has_permission = await check_user_club_permission(db, user_staff.id, club_id)
     if not has_permission:
         raise HTTPException(
             status_code=403, detail="You don't have permission to update this club"
         )
 
     try:
-        db_club = await update_club(db, club_id, club_update, user_stuff.id)
+        db_club = await update_club(db, club_id, club_update, user_staff.id)
         if not db_club:
             raise HTTPException(status_code=404, detail="Club not found")
         return db_club
@@ -192,14 +191,14 @@ async def delete_club_route(
 
     - **club_id**: Unique club identifier
 
-    ⚠️ **Warning**: This action is irreversible and will also delete all related sections and user roles.
+    **Warning**: This action is irreversible and will also delete all related sections and user roles.
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     try:
-        deleted = await delete_club(db, club_id, user_stuff.id)
+        deleted = await delete_club(db, club_id, user_staff.id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Club not found")
     except PermissionError as e:
@@ -221,20 +220,20 @@ async def check_club_permission(
 
     Returns information about user's permissions for the club.
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     club = await get_club_by_id(db, club_id)
     if not club:
         raise HTTPException(status_code=404, detail="Club not found")
 
-    has_permission = await check_user_club_permission(db, user_stuff.id, club_id)
-    is_owner = club.owner_id == user_stuff.id
+    has_permission = await check_user_club_permission(db, user_staff.id, club_id)
+    is_owner = club.owner_id == user_staff.id
 
     return {
         "club_id": club_id,
-        "user_id": user_stuff.id,
+        "user_id": user_staff.id,
         "has_permission": has_permission,
         "is_owner": is_owner,
         "can_manage": has_permission,

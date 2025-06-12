@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional, List
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
-from app.stuff.schemas.sections import SectionCreate, SectionUpdate, SectionRead
-from app.stuff.crud.users import get_user_stuff_by_telegram_id
-from app.stuff.crud.sections import (
+from app.staff.schemas.sections import SectionCreate, SectionUpdate, SectionRead
+from app.staff.crud.users import get_user_staff_by_telegram_id
+from app.staff.crud.sections import (
     get_section_by_id,
     get_sections_by_club,
     get_sections_by_coach,
@@ -47,15 +47,15 @@ async def create_new_section(
     Only club owners and admins can create sections.
     """
     # Get user from database to ensure they exist as staff
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(
             status_code=404,
             detail="Staff user not found. Please register as staff first.",
         )
 
     try:
-        db_section = await create_section(db, section, user_stuff.id)
+        db_section = await create_section(db, section, user_staff.id)
         return db_section
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -161,11 +161,11 @@ async def get_my_sections(
     """
     Get all sections coached by the authenticated user.
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
-    sections = await get_sections_by_coach(db, user_stuff.id)
+    sections = await get_sections_by_coach(db, user_staff.id)
     return sections
 
 
@@ -202,12 +202,12 @@ async def update_section_details(
     - **section_id**: Unique section identifier
     - All fields are optional in update
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     try:
-        db_section = await update_section(db, section_id, section_update, user_stuff.id)
+        db_section = await update_section(db, section_id, section_update, user_staff.id)
         if not db_section:
             raise HTTPException(status_code=404, detail="Section not found")
         return db_section
@@ -234,12 +234,12 @@ async def delete_section_route(
 
     ⚠️ **Warning**: This action is irreversible and will also delete all related data.
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     try:
-        deleted = await delete_section(db, section_id, user_stuff.id)
+        deleted = await delete_section(db, section_id, user_staff.id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Section not found")
     except PermissionError as e:
@@ -263,12 +263,12 @@ async def toggle_section_status_route(
 
     This is useful for temporarily disabling sections without deleting them.
     """
-    user_stuff = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
-    if not user_stuff:
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     try:
-        db_section = await toggle_section_status(db, section_id, user_stuff.id)
+        db_section = await toggle_section_status(db, section_id, user_staff.id)
         if not db_section:
             raise HTTPException(status_code=404, detail="Section not found")
         return db_section

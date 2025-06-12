@@ -25,7 +25,7 @@ class UserRole(Base):
 
     # Fixed foreign key references
     user_id = Column(
-        Integer, ForeignKey("user_stuff.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("user_staff.id", ondelete="CASCADE"), nullable=False
     )
     club_id = Column(
         Integer, ForeignKey("clubs.id", ondelete="CASCADE"), nullable=False
@@ -39,7 +39,7 @@ class UserRole(Base):
     is_active = Column(Boolean, default=True)
 
     # relationships
-    user = relationship("UserStuff", back_populates="roles")
+    user = relationship("UserStaff", back_populates="roles")
     club = relationship("Club", back_populates="user_roles")
     role = relationship("Role")
 

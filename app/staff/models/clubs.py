@@ -28,7 +28,7 @@ class Club(Base):
     telegram_url = Column(String(255), nullable=True)
     instagram_url = Column(String(255), nullable=True)
 
-    owner_id = Column(Integer, ForeignKey("user_stuff.id"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("user_staff.id"), nullable=True)
     timezone = Column(String(40), default="Asia/Almaty")
     currency = Column(String(8), default="KZT")
 
@@ -42,4 +42,4 @@ class Club(Base):
     # relations
     sections = relationship("Section", back_populates="club", cascade="all, delete")
     user_roles = relationship("UserRole", back_populates="club", cascade="all, delete")
-    owner = relationship("UserStuff", foreign_keys=[owner_id])
+    owner = relationship("UserStaff", foreign_keys=[owner_id])

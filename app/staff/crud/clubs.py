@@ -1,11 +1,13 @@
-from typing import Any, Dict, Optional
+from typing import Optional
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from app.stuff.models.clubs import Club
-from app.stuff.models.users import UserStuff
-from app.stuff.schemas.clubs import ClubCreate, ClubUpdate
+from app.staff.models.clubs import Club
+from app.staff.models.users import UserStaff
+from app.staff.schemas.clubs import ClubCreate, ClubUpdate
+from app.staff.models.user_roles import UserRole
+from app.staff.models.roles import Role, RoleType
 
 
 async def get_club_by_id(session: AsyncSession, club_id: int):
@@ -78,7 +80,7 @@ async def create_club(session: AsyncSession, club: ClubCreate, owner_id: int) ->
 
     # Verify owner exists
     owner_result = await session.execute(
-        select(UserStuff).where(UserStuff.id == owner_id)
+        select(UserStaff).where(UserStaff.id == owner_id)
     )
     owner = owner_result.scalar_one_or_none()
     if not owner:
@@ -173,10 +175,6 @@ async def check_user_club_permission(
 
     if club:
         return True
-
-    # Check if user has admin role in this club
-    from app.stuff.models.user_roles import UserRole
-    from app.stuff.models.roles import Role, RoleType
 
     role_result = await session.execute(
         select(UserRole)

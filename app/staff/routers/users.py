@@ -6,60 +6,60 @@ from typing import Any, Dict, Optional
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
-from app.stuff.schemas.users import (
-    UserStuffCreate,
-    UserStuffUpdate,
-    UserStuffRead,
-    UserStuffListResponse,
-    UserStuffPreferencesUpdate,
-    UserStuffFilters,
+from app.staff.schemas.users import (
+    UserStaffCreate,
+    UserStaffUpdate,
+    UserStaffRead,
+    UserStaffListResponse,
+    UserStaffPreferencesUpdate,
+    UserStaffFilters,
 )
 
-from app.stuff.crud.users import (
-    get_user_stuff_by_id,
-    get_user_stuff_by_telegram_id,
-    get_users_stuff_paginated,
-    create_user_stuff,
-    update_user_stuff,
-    update_user_stuff_preferences,
-    get_user_stuff_preference,
+from app.staff.crud.users import (
+    get_user_staff_by_id,
+    get_user_staff_by_telegram_id,
+    get_users_staff_paginated,
+    create_user_staff,
+    update_user_staff,
+    update_user_staff_preferences,
+    get_user_staff_preference,
 )
 
-router = APIRouter(prefix="/stuff", tags=["Stuff"])
+router = APIRouter(prefix="/staff", tags=["Staff"])
 
 
-@router.post("/", response_model=UserStuffRead, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=UserStaffRead, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
-async def create_new_user_stuff(
+async def create_new_user_staff(
     request: Request,
-    user: UserStuffCreate,
+    user: UserStaffCreate,
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    existing = await get_user_stuff_by_telegram_id(db, current_user.get("id"))
+    existing = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if existing:
         raise HTTPException(
             status_code=409,
             detail=f"User with this telegram_id {current_user.get('id')} already exists.",
         )
 
-    return await create_user_stuff(db, user, current_user)
+    return await create_user_staff(db, user, current_user)
 
 
-@router.get("/{user_id}", response_model=UserStuffRead)
+@router.get("/{user_id}", response_model=UserStaffRead)
 @limiter.limit("30/minute")
-async def get_user_stuff(
+async def get_user_staff(
     request: Request, user_id: int, db: AsyncSession = Depends(get_session)
 ):
-    user = await get_user_stuff_by_id(db, user_id)
+    user = await get_user_staff_by_id(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
-@router.get("/", response_model=UserStuffListResponse)
+@router.get("/", response_model=UserStaffListResponse)
 @limiter.limit("20/minute")
-async def get_users_stuff_list(
+async def get_users_staff_list(
     request: Request,
     page: int = Query(1, ge=1, description="Page number starting from 1"),
     size: int = Query(10, ge=1, le=100, description="Number of items per page"),
@@ -81,7 +81,7 @@ async def get_users_stuff_list(
     skip = (page - 1) * size
 
     # Создаем объект фильтров
-    filters = UserStuffFilters(
+    filters = UserStaffFilters(
         first_name=first_name,
         last_name=last_name,
         phone_number=phone_number,
@@ -92,52 +92,52 @@ async def get_users_stuff_list(
     if not any([first_name, last_name, phone_number, username]):
         filters = None
 
-    users, total = await get_users_stuff_paginated(
+    users, total = await get_users_staff_paginated(
         db, skip=skip, limit=size, filters=filters
     )
 
     pages = math.ceil(total / size) if total > 0 else 1
 
-    return UserStuffListResponse(
+    return UserStaffListResponse(
         users=users, total=total, page=page, size=size, pages=pages, filters=filters
     )
 
 
-@router.get("/by-telegram-id/{telegram_id}", response_model=UserStuffRead)
+@router.get("/by-telegram-id/{telegram_id}", response_model=UserStaffRead)
 @limiter.limit("30/minute")
-async def get_user_stuff_by_telegram_id_route(
+async def get_user_staff_by_telegram_id_route(
     request: Request, telegram_id: int, db: AsyncSession = Depends(get_session)
 ):
-    user = await get_user_stuff_by_telegram_id(db, telegram_id)
+    user = await get_user_staff_by_telegram_id(db, telegram_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
-@router.put("/", response_model=UserStuffRead)
+@router.put("/", response_model=UserStaffRead)
 @limiter.limit("10/minute")
-async def update_user_stuff_by_telegram_id(
+async def update_user_staff_by_telegram_id(
     request: Request,
-    user: UserStuffUpdate,
+    user: UserStaffUpdate,
     db: AsyncSession = Depends(get_session),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    db_user = await update_user_stuff(db, current_user.get("id"), user)
+    db_user = await update_user_staff(db, current_user.get("id"), user)
     if db_user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return db_user
 
 
-@router.put("/preferences", response_model=UserStuffRead)
+@router.put("/preferences", response_model=UserStaffRead)
 @limiter.limit("10/minute")
-async def update_user_stuff_preferences_route(
+async def update_user_staff_preferences_route(
     request: Request,
-    preferences: UserStuffPreferencesUpdate,
+    preferences: UserStaffPreferencesUpdate,
     db: AsyncSession = Depends(get_session),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Update user stuff preferences (language, dark_mode, notifications, timezone)"""
-    db_user = await update_user_stuff_preferences(
+    """Update user staff preferences (language, dark_mode, notifications, timezone)"""
+    db_user = await update_user_staff_preferences(
         db, preferences, current_user.get("id")
     )
     if db_user is None:
@@ -147,14 +147,14 @@ async def update_user_stuff_preferences_route(
 
 @router.get("/{telegram_id}/preferences/{preference_key}")
 @limiter.limit("10/minute")
-async def get_user_stuff_preference_route(
+async def get_user_staff_preference_route(
     request: Request,
     telegram_id: int,
     preference_key: str,
     db: AsyncSession = Depends(get_session),
 ):
-    """Get specific user stuff preference by key"""
-    preference_value = await get_user_stuff_preference(db, telegram_id, preference_key)
+    """Get specific user staff preference by key"""
+    preference_value = await get_user_staff_preference(db, telegram_id, preference_key)
     if preference_value is None:
         raise HTTPException(status_code=404, detail="User or preference not found")
 

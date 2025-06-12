@@ -4,8 +4,8 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
-class UserStuff(Base):
-    __tablename__ = "user_stuff"
+class UserStaff(Base):
+    __tablename__ = "user_staff"
 
     id = Column(Integer, primary_key=True, index=True)
     telegram_id = Column(BigInteger, unique=True, index=True)

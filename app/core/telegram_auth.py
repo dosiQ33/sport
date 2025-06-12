@@ -4,7 +4,7 @@ import json
 import urllib.parse
 from urllib.parse import unquote_plus
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 

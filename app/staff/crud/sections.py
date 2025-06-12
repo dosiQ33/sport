@@ -1,14 +1,14 @@
-# Save this as: app/stuff/crud/sections.py
-
-from typing import Any, Dict, Optional, List
+from typing import Optional
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from app.stuff.models.sections import Section
-from app.stuff.models.clubs import Club
-from app.stuff.models.users import UserStuff
-from app.stuff.schemas.sections import SectionCreate, SectionUpdate
+from app.staff.models.sections import Section
+from app.staff.models.clubs import Club
+from app.staff.models.users import UserStaff
+from app.staff.schemas.sections import SectionCreate, SectionUpdate
+from app.staff.crud.clubs import check_user_club_permission
+from app.staff.crud.clubs import check_user_club_permission
 
 
 async def get_section_by_id(session: AsyncSession, section_id: int):
@@ -120,9 +120,6 @@ async def create_section(
     if not club:
         raise ValueError(f"Club with ID {section.club_id} not found")
 
-    # Check if user has permission to create sections in this club
-    from app.stuff.crud.clubs import check_user_club_permission
-
     has_permission = await check_user_club_permission(session, user_id, section.club_id)
     if not has_permission:
         raise PermissionError(
@@ -132,7 +129,7 @@ async def create_section(
     # Verify coach exists if provided
     if section.coach_id:
         coach_result = await session.execute(
-            select(UserStuff).where(UserStuff.id == section.coach_id)
+            select(UserStaff).where(UserStaff.id == section.coach_id)
         )
         coach = coach_result.scalar_one_or_none()
         if not coach:
@@ -176,9 +173,6 @@ async def update_section(
     if not db_section:
         return None
 
-    # Check if user has permission to update sections in this club
-    from app.stuff.crud.clubs import check_user_club_permission
-
     has_permission = await check_user_club_permission(
         session, user_id, db_section.club_id
     )
@@ -192,7 +186,7 @@ async def update_section(
     # Verify coach exists if being updated
     if "coach_id" in update_data and update_data["coach_id"]:
         coach_result = await session.execute(
-            select(UserStuff).where(UserStuff.id == update_data["coach_id"])
+            select(UserStaff).where(UserStaff.id == update_data["coach_id"])
         )
         coach = coach_result.scalar_one_or_none()
         if not coach:
@@ -235,9 +229,6 @@ async def delete_section(session: AsyncSession, section_id: int, user_id: int) -
     db_section = await get_section_by_id(session, section_id)
     if not db_section:
         return False
-
-    # Check if user has permission to delete sections in this club
-    from app.stuff.crud.clubs import check_user_club_permission
 
     has_permission = await check_user_club_permission(
         session, user_id, db_section.club_id
@@ -297,9 +288,6 @@ async def toggle_section_status(
     db_section = await get_section_by_id(session, section_id)
     if not db_section:
         return None
-
-    # Check permissions
-    from app.stuff.crud.clubs import check_user_club_permission
 
     has_permission = await check_user_club_permission(
         session, user_id, db_section.club_id

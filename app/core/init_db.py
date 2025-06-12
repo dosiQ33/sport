@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from app.core.database import async_session, engine, Base
-from app.stuff.models.roles import Role, RoleType
+from app.staff.models.roles import Role, RoleType
 
 logger = logging.getLogger(__name__)
 
