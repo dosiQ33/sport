@@ -6,16 +6,16 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Замените на ваш домен и email
-DOMAIN="tensu.kz"
-EMAIL="tensu@example.com"
+# Настройки для api.tensu.kz
+DOMAIN="api.tensu.kz"
+EMAIL="dongeleq@gmail.com"  # Замените на ваш реальный email
 
 echo -e "${GREEN}Setting up SSL for domain: $DOMAIN${NC}"
 
-# Проверяем, что домен установлен
-if [ "$DOMAIN" = "tensu.kz" ]; then
-    echo -e "${YELLOW}Please update EMAIL variable in this script before running${NC}"
-    read -p "Enter your email for Let's Encrypt: " EMAIL
+# Проверяем email
+if [ "$EMAIL" = "admin@tensu.kz" ]; then
+    echo -e "${YELLOW}Please enter your real email for Let's Encrypt notifications${NC}"
+    read -p "Enter your email: " EMAIL
 fi
 
 # Создаем необходимые директории
@@ -25,6 +25,7 @@ mkdir -p certbot/www
 
 # Останавливаем существующие контейнеры, если они запущены
 echo -e "${YELLOW}Stopping existing containers...${NC}"
+docker-compose down 2>/dev/null || true
 docker stop temp-nginx 2>/dev/null || true
 docker rm temp-nginx 2>/dev/null || true
 
@@ -38,14 +39,14 @@ events {
 http {
     server {
         listen 80;
-        server_name $DOMAIN www.$DOMAIN;
+        server_name $DOMAIN;
 
         location /.well-known/acme-challenge/ {
             root /var/www/certbot;
         }
 
         location / {
-            return 200 'OK';
+            return 200 'SSL Setup in Progress';
             add_header Content-Type text/plain;
         }
     }
@@ -78,7 +79,7 @@ if ! docker ps | grep -q temp-nginx; then
 fi
 
 echo -e "${YELLOW}Testing domain accessibility...${NC}"
-curl -f http://$DOMAIN/.well-known/acme-challenge/test 2>/dev/null || echo -e "${YELLOW}Domain test request completed${NC}"
+curl -f http://$DOMAIN/ 2>/dev/null && echo -e "${GREEN}Domain is accessible${NC}" || echo -e "${YELLOW}Domain test completed${NC}"
 
 echo -e "${GREEN}Requesting SSL certificate from Let's Encrypt...${NC}"
 
@@ -92,9 +93,8 @@ docker run --rm \
     --agree-tos \
     --no-eff-email \
     --non-interactive \
-    --expand \
-    -d $DOMAIN \
-    -d www.$DOMAIN
+    --force-renewal \
+    -d $DOMAIN
 
 CERTBOT_EXIT_CODE=$?
 
@@ -115,23 +115,25 @@ if [ $CERTBOT_EXIT_CODE -eq 0 ]; then
         certbot/certbot \
         certificates
     
-    echo -e "${GREEN}Setup completed! Now you can:${NC}"
-    echo -e "${YELLOW}1. Update nginx.conf with your domain name ($DOMAIN)${NC}"
-    echo -e "${YELLOW}2. Run: docker-compose up -d${NC}"
-    
     # Проверяем, что сертификаты созданы
     if [ -f "certbot/conf/live/$DOMAIN/fullchain.pem" ]; then
         echo -e "${GREEN}✓ SSL certificates are ready${NC}"
+        echo -e "${GREEN}✓ Certificate files found:${NC}"
+        ls -la certbot/conf/live/$DOMAIN/
     else
         echo -e "${RED}✗ SSL certificate files not found${NC}"
+        exit 1
     fi
+    
+    echo -e "${GREEN}Setup completed! Now you can run: docker-compose up -d${NC}"
     
 else
     echo -e "${RED}Failed to obtain SSL certificate${NC}"
     echo -e "${YELLOW}Common issues:${NC}"
-    echo -e "${YELLOW}1. Make sure your domain DNS points to this server${NC}"
+    echo -e "${YELLOW}1. Make sure your domain DNS points to this server (195.49.215.106)${NC}"
     echo -e "${YELLOW}2. Check that ports 80 and 443 are open${NC}"
     echo -e "${YELLOW}3. Verify domain ownership${NC}"
     echo -e "${YELLOW}4. Try running: dig $DOMAIN${NC}"
+    echo -e "${YELLOW}5. Check if domain propagation is complete: nslookup $DOMAIN${NC}"
     exit 1
 fi
