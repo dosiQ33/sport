@@ -39,8 +39,6 @@ async def create_new_club(
     - **phone**: Contact phone number (optional)
     - **telegram_url**: Telegram channel/group URL (optional)
     - **instagram_url**: Instagram profile URL (optional)
-    - **timezone**: Club timezone (default: Asia/Almaty)
-    - **currency**: Club currency (default: KZT)
     """
     # Get user from database to ensure they exist as staff
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
@@ -56,7 +54,7 @@ async def create_new_club(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to create club")
+        raise HTTPException(status_code=500, detail=f"Failed to create club {e}")
 
 
 @router.get("/", response_model=ClubListResponse)

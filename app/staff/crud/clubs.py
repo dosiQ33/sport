@@ -73,18 +73,21 @@ async def get_clubs_paginated(
 
 async def create_club(session: AsyncSession, club: ClubCreate, owner_id: int) -> Club:
     """Create a new club"""
-    # Check if club name already exists
+    # Проверяем лимит клубов
+    owner = await session.get(UserStaff, owner_id)
+    if not owner:
+        raise ValueError(f"Owner with ID {owner_id} not found")
+
+    # # Проверяем лимит
+    # if owner.clubs_limit > 0 and owner.clubs_created >= owner.clubs_limit:
+    #     raise ValueError(
+    #         f"You have reached your club creation limit ({owner.clubs_limit})"
+    #     )
+
+    # Существующая логика...
     existing_club = await get_club_by_name(session, club.name)
     if existing_club:
         raise ValueError(f"Club with name '{club.name}' already exists")
-
-    # Verify owner exists
-    owner_result = await session.execute(
-        select(UserStaff).where(UserStaff.id == owner_id)
-    )
-    owner = owner_result.scalar_one_or_none()
-    if not owner:
-        raise ValueError(f"Owner with ID {owner_id} not found")
 
     club_data = club.model_dump()
     club_data["owner_id"] = owner_id
@@ -94,8 +97,6 @@ async def create_club(session: AsyncSession, club: ClubCreate, owner_id: int) ->
         session.add(db_club)
         await session.commit()
         await session.refresh(db_club)
-
-        # Load owner relationship
         await session.refresh(db_club, ["owner"])
 
         return db_club

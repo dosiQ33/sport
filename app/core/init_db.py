@@ -21,7 +21,6 @@ async def create_initial_roles():
 
                 roles_data = [
                     {"code": RoleType.coach, "name": "Coach"},
-                    {"code": RoleType.manager, "name": "Manager"},
                     {"code": RoleType.admin, "name": "Administrator"},
                     {"code": RoleType.owner, "name": "Owner"},
                 ]

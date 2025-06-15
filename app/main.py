@@ -9,6 +9,8 @@ from app.staff.routers import users as staff_users
 from app.staff.routers import clubs as staff_clubs
 from app.students.routers import users as student_users
 from app.staff.routers import sections as staff_sections
+from app.staff.routers import invitations as staff_invitations
+from app.staff.routers import superadmin
 
 
 @asynccontextmanager
@@ -43,7 +45,9 @@ app.add_middleware(
 app.include_router(staff_users.router, prefix="/api/v1")
 app.include_router(staff_clubs.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
+app.include_router(staff_invitations.router, prefix="/api/v1")
 app.include_router(student_users.router, prefix="/api/v1")
+app.include_router(superadmin.router, prefix="/api/v1")
 
 
 @app.get("/")

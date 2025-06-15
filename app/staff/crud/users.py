@@ -1,8 +1,12 @@
+# app/staff/crud/users.py
 from typing import Any, Dict
+from fastapi import HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.staff.models.users import UserStaff
+from app.staff.models.user_roles import UserRole
+from app.staff.models.roles import Role
 from app.core.config import TELEGRAM_BOT_TOKEN
 from app.core.telegram_auth import TelegramAuth
 from app.staff.schemas.users import (
@@ -11,6 +15,7 @@ from app.staff.schemas.users import (
     UserStaffPreferencesUpdate,
     UserStaffFilters,
 )
+from app.staff.crud.invitations import get_invitation_by_phone, mark_invitation_as_used
 
 telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN)
 
@@ -74,8 +79,24 @@ async def get_users_staff_paginated(
 async def create_user_staff(
     session: AsyncSession, user: UserStaffCreate, current_user: Dict[str, Any]
 ):
+    """Создать пользователя staff с проверкой приглашения"""
+
+    # Проверяем контактные данные
     contact_data = telegram_auth.authenticate_contact_request(user.contact_init_data)
     phone_number = contact_data["contact"]["phone_number"]
+
+    # Проверяем, что пользователь с таким telegram_id не существует
+    existing_user = await get_user_staff_by_telegram_id(session, current_user.get("id"))
+    if existing_user:
+        raise ValueError("User with this Telegram ID already exists")
+
+    # Проверяем наличие приглашения
+    invitation = await get_invitation_by_phone(session, phone_number)
+    if not invitation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No valid invitation found for this phone number. Please contact the administrator.",
+        )
 
     default_preferences = {
         "language": current_user.get("language_code", None),
@@ -87,6 +108,7 @@ async def create_user_staff(
     user_preferences = user.preferences or {}
     merged_preferences = {**default_preferences, **user_preferences}
 
+    # Создаем пользователя с лимитами из приглашения
     user_data = {
         "telegram_id": current_user.get("id"),
         "first_name": current_user.get("first_name"),
@@ -98,12 +120,35 @@ async def create_user_staff(
     }
 
     try:
+        # Создаем пользователя
         db_user = UserStaff(**user_data)
         session.add(db_user)
+        await session.flush()  # Получаем ID пользователя
+
+        # Если приглашение для конкретного клуба, создаем роль
+        if invitation.club_id:
+            # Получаем ID роли
+            role_result = await session.execute(
+                select(Role).where(Role.code == invitation.role)
+            )
+            role = role_result.scalar_one()
+
+            # Создаем запись о роли в клубе
+            user_role = UserRole(
+                user_id=db_user.id,
+                club_id=invitation.club_id,
+                role_id=role.id,
+                is_active=True,
+            )
+            session.add(user_role)
+
+        # Помечаем приглашение как использованное
+        await mark_invitation_as_used(session, invitation.id, db_user.id)
+
         await session.commit()
         await session.refresh(db_user)
         return db_user
-    except:
+    except Exception as e:
         await session.rollback()
         raise
 
@@ -151,3 +196,12 @@ async def get_user_staff_preference(
         return None
 
     return db_user.preferences.get(preference_key)
+
+
+# В конец файла добавьте:
+
+
+async def check_user_is_superadmin(session: AsyncSession, user_id: int) -> bool:
+    """Проверить, является ли пользователь суперадмином"""
+    user = await get_user_staff_by_id(session, user_id)
+    return user and user.is_superadmin

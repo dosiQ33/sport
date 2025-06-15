@@ -262,7 +262,6 @@ async def get_section_statistics(session: AsyncSession, section_id: int):
     stats = {
         "id": section.id,
         "name": section.name,
-        "club_name": section.club.name if section.club else None,
         "coach_name": (
             f"{section.coach.first_name} {section.coach.last_name}"
             if section.coach

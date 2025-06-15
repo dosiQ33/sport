@@ -4,6 +4,7 @@ from .roles import Role
 from .clubs import Club
 from .sections import Section
 from .user_roles import UserRole
+from .invitations import Invitation
 
 __all__ = [
     "Base",
@@ -12,4 +13,5 @@ __all__ = [
     "Club",
     "Section",
     "UserRole",
+    "Invitation",
 ]
