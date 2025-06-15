@@ -198,7 +198,22 @@ async def get_user_staff_preference(
     return db_user.preferences.get(preference_key)
 
 
-# В конец файла добавьте:
+async def delete_user_staff(session: AsyncSession, telegram_id: int) -> bool:
+    """
+    Удалить пользователя staff по telegram_id.
+    Благодаря cascade в моделях, все связанные записи удалятся автоматически.
+    """
+    db_user = await get_user_staff_by_telegram_id(session, telegram_id)
+    if not db_user:
+        return False
+
+    try:
+        await session.delete(db_user)
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        raise
 
 
 async def check_user_is_superadmin(session: AsyncSession, user_id: int) -> bool:

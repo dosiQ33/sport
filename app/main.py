@@ -5,18 +5,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import engine, Base
 from app.core.limits import limiter, rate_limit_handler
+from app.core.init_db import init_database
 from app.staff.routers import users as staff_users
 from app.staff.routers import clubs as staff_clubs
 from app.students.routers import users as student_users
 from app.staff.routers import sections as staff_sections
 from app.staff.routers import invitations as staff_invitations
-from app.staff.routers import superadmin
+from app.superadmin.routers import invitations as superadmin_invitations
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Initialize database with tables and initial data
+    await init_database()
     yield
 
 
@@ -47,7 +48,7 @@ app.include_router(staff_clubs.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
 app.include_router(staff_invitations.router, prefix="/api/v1")
 app.include_router(student_users.router, prefix="/api/v1")
-app.include_router(superadmin.router, prefix="/api/v1")
+app.include_router(superadmin_invitations.router, prefix="/api/v1")
 
 
 @app.get("/")

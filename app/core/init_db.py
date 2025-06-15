@@ -20,9 +20,9 @@ async def create_initial_roles():
                 logger.info("Creating initial roles...")
 
                 roles_data = [
-                    {"code": RoleType.coach, "name": "Coach"},
-                    {"code": RoleType.admin, "name": "Administrator"},
                     {"code": RoleType.owner, "name": "Owner"},
+                    {"code": RoleType.admin, "name": "Admin"},
+                    {"code": RoleType.coach, "name": "Coach"},
                 ]
 
                 for role_data in roles_data:

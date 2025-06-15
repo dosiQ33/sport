@@ -23,6 +23,7 @@ from app.staff.crud.users import (
     update_user_staff,
     update_user_staff_preferences,
     get_user_staff_preference,
+    delete_user_staff,
 )
 
 router = APIRouter(prefix="/staff", tags=["Staff"])
@@ -174,3 +175,29 @@ async def get_user_staff_preference_route(
         "preference_key": preference_key,
         "value": preference_value,
     }
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("3/minute")
+async def delete_current_user_staff(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Delete current authenticated staff user.
+
+    ⚠️ **Warning**: This action is irreversible and will delete:
+    - Your user profile
+    - All clubs you own
+    - All sections in your clubs
+    - All user roles associated with your clubs
+    - All invitations you created
+
+    This action can only be performed by the user themselves.
+    """
+    deleted = await delete_user_staff(db, current_user.get("id"))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Staff user profile not found")
+
+    # Successful deletion returns 204 No Content

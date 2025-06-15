@@ -20,19 +20,38 @@ class UserStaff(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    # Relationships
+    # Relationships with CASCADE
     roles = relationship(
         "UserRole",
         back_populates="user",
-        cascade="all, delete",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
         lazy="select",
     )
 
-    # Add relationships for clubs and sections
+    # Clubs owned by this user
     owned_clubs = relationship(
-        "Club", foreign_keys="Club.owner_id", back_populates="owner"
+        "Club",
+        foreign_keys="Club.owner_id",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
+    # Sections coached by this user
     coached_sections = relationship(
-        "Section", foreign_keys="Section.coach_id", back_populates="coach"
+        "Section",
+        foreign_keys="Section.coach_id",
+        back_populates="coach",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # Invitations created by this user
+    created_invitations = relationship(
+        "Invitation",
+        foreign_keys="Invitation.created_by_id",
+        back_populates="created_by",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

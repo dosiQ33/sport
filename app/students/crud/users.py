@@ -153,3 +153,20 @@ async def get_user_student_preference(
         return None
 
     return db_user.preferences.get(preference_key)
+
+
+async def delete_user_student(session: AsyncSession, telegram_id: int) -> bool:
+    """
+    Удалить студента по telegram_id.
+    """
+    db_user = await get_user_student_by_telegram_id(session, telegram_id)
+    if not db_user:
+        return False
+
+    try:
+        await session.delete(db_user)
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        raise

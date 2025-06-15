@@ -1,8 +1,6 @@
-# app/staff/routers/superadmin.py
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
-import os
 
 from app.core.database import get_session
 from app.staff.schemas.invitations import (
@@ -15,20 +13,9 @@ from app.staff.crud.invitations import (
     get_invitations_paginated,
     get_invitation_stats,
 )
+from app.superadmin.dependencies import verify_superadmin_token
 
 router = APIRouter(prefix="/superadmin", tags=["SuperAdmin"])
-
-# Получаем токен SuperAdmin из переменной окружения
-SUPERADMIN_TOKEN = os.getenv("SUPERADMIN_TOKEN")
-
-
-def verify_superadmin_token(x_superadmin_token: str = Header(...)):
-    """Проверка токена суперадмина"""
-    if x_superadmin_token != SUPERADMIN_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid superadmin token"
-        )
-    return True
 
 
 @router.post("/invitations", response_model=InvitationRead)

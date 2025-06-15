@@ -23,6 +23,7 @@ from app.students.crud.users import (
     update_user_student,
     update_user_student_preferences,
     get_user_student_preference,
+    delete_user_student,
 )
 
 router = APIRouter(prefix="/students", tags=["Students"])
@@ -171,3 +172,26 @@ async def get_user_student_preference_route(
         "preference_key": preference_key,
         "value": preference_value,
     }
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("3/minute")
+async def delete_current_user_student(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Delete current authenticated student user.
+
+    ⚠️ **Warning**: This action is irreversible and will delete:
+    - Your student profile
+    - All enrollments and related data
+
+    This action can only be performed by the user themselves.
+    """
+    deleted = await delete_user_student(db, current_user.get("id"))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Student user profile not found")
+
+    # Successful deletion returns 204 No Content
