@@ -187,17 +187,21 @@ async def delete_current_user_staff(
     """
     Delete current authenticated staff user.
 
-    ⚠️ **Warning**: This action is irreversible and will delete:
-    - Your user profile
-    - All clubs you own
-    - All sections in your clubs
-    - All user roles associated with your clubs
-    - All invitations you created
+    ⚠️ **Warning**: This action is irreversible and will:
+    - Delete your user profile
+    - Remove you from all clubs (ownership will be transferred to NULL)
+    - Remove you as coach from all sections
+    - Mark your invitations as system-created
+    - Delete all your user roles
 
     This action can only be performed by the user themselves.
     """
-    deleted = await delete_user_staff(db, current_user.get("id"))
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Staff user profile not found")
-
-    # Successful deletion returns 204 No Content
+    try:
+        deleted = await delete_user_staff(db, current_user.get("id"))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Staff user profile not found")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete user profile. Please try again or contact support: {e}",
+        )

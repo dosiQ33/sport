@@ -158,15 +158,21 @@ async def get_user_student_preference(
 async def delete_user_student(session: AsyncSession, telegram_id: int) -> bool:
     """
     Удалить студента по telegram_id.
+    Для студентов обычно меньше связей, но лучше сделать аналогично.
     """
     db_user = await get_user_student_by_telegram_id(session, telegram_id)
     if not db_user:
         return False
 
     try:
+        # Для студентов может быть меньше связей, но принцип тот же
+        # Если есть записи в других таблицах (например, enrollments),
+        # их тоже нужно обработать здесь
+
         await session.delete(db_user)
         await session.commit()
         return True
+
     except Exception as e:
         await session.rollback()
         raise

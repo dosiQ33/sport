@@ -1,3 +1,4 @@
+# app/staff/models/users.py
 from sqlalchemy import Column, Integer, String, DateTime, JSON, BigInteger
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -20,30 +21,29 @@ class UserStaff(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    # Relationships with CASCADE
+    # Relationships with proper CASCADE settings
     roles = relationship(
         "UserRole",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
-        lazy="select",
     )
 
-    # Clubs owned by this user
+    # Clubs owned by this user - use SET NULL instead of CASCADE
     owned_clubs = relationship(
         "Club",
         foreign_keys="Club.owner_id",
         back_populates="owner",
-        cascade="all, delete-orphan",
+        cascade="save-update, merge",  # Don't cascade delete
         passive_deletes=True,
     )
 
-    # Sections coached by this user
+    # Sections coached by this user - use SET NULL
     coached_sections = relationship(
         "Section",
         foreign_keys="Section.coach_id",
         back_populates="coach",
-        cascade="all, delete-orphan",
+        cascade="save-update, merge",  # Don't cascade delete
         passive_deletes=True,
     )
 

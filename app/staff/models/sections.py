@@ -1,3 +1,4 @@
+# app/staff/models/sections.py
 import enum
 from sqlalchemy import (
     Column,
@@ -34,9 +35,12 @@ class Section(Base):
     price = Column(Numeric(10, 2), nullable=True)
     duration_min = Column(Integer, nullable=True, server_default=text("60"))
 
-    coach_id = Column(Integer, ForeignKey("user_staff.id"), nullable=True)
+    # SET NULL when coach is deleted
+    coach_id = Column(
+        Integer, ForeignKey("user_staff.id", ondelete="SET NULL"), nullable=True
+    )
 
-    tags = Column(JSON, nullable=True, default=list)  # ["boxing", "kids"]
+    tags = Column(JSON, nullable=True, default=list)
     schedule = Column(JSON, nullable=True, default=dict)
     active = Column(Boolean, default=True)
 

@@ -1,3 +1,4 @@
+# app/staff/models/user_roles.py
 from sqlalchemy import (
     Column,
     Integer,
@@ -13,17 +14,11 @@ from app.core.database import Base
 
 
 class UserRole(Base):
-    """
-    Таблица RBAC: одна запись = одна роль пользователя в конкретном клубе.
-    Один пользователь может иметь только одну роль в одном клубе.
-    """
-
     __tablename__ = "user_roles"
 
-    # Add auto-increment ID as primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # Fixed foreign key references
+    # CASCADE when user or club is deleted
     user_id = Column(
         Integer, ForeignKey("user_staff.id", ondelete="CASCADE"), nullable=False
     )
@@ -44,7 +39,6 @@ class UserRole(Base):
     role = relationship("Role")
 
     __table_args__ = (
-        # Ensure one user can have only one active role per club
         UniqueConstraint("user_id", "club_id", name="uq_user_club"),
         Index("ix_user_roles_user_club", "user_id", "club_id"),
         Index("ix_user_roles_active", "is_active"),

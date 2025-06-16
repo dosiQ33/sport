@@ -200,17 +200,41 @@ async def get_user_staff_preference(
 
 async def delete_user_staff(session: AsyncSession, telegram_id: int) -> bool:
     """
-    Удалить пользователя staff по telegram_id.
-    Благодаря cascade в моделях, все связанные записи удалятся автоматически.
+    Удалить пользователя staff по telegram_id с правильной обработкой связей.
     """
     db_user = await get_user_staff_by_telegram_id(session, telegram_id)
     if not db_user:
         return False
 
     try:
+        # Начинаем транзакцию
+        # 1. Обновляем владельцев клубов на NULL (если они владеют клубами)
+        if db_user.owned_clubs:
+            for club in db_user.owned_clubs:
+                club.owner_id = None
+                session.add(club)
+
+        # 2. Убираем тренера из секций (устанавливаем coach_id = NULL)
+        if db_user.coached_sections:
+            for section in db_user.coached_sections:
+                section.coach_id = None
+                session.add(section)
+
+        # 3. Помечаем созданные приглашения как системные (created_by_id = NULL)
+        if db_user.created_invitations:
+            for invitation in db_user.created_invitations:
+                invitation.created_by_id = None
+                invitation.created_by_type = "system"
+                session.add(invitation)
+
+        # 4. Удаляем роли пользователя (должны удалиться автоматически через CASCADE)
+        # Это происходит автоматически благодаря ondelete="CASCADE" в user_roles
+
+        # 5. Теперь можно безопасно удалить пользователя
         await session.delete(db_user)
         await session.commit()
         return True
+
     except Exception as e:
         await session.rollback()
         raise

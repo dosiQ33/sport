@@ -190,8 +190,14 @@ async def delete_current_user_student(
 
     This action can only be performed by the user themselves.
     """
-    deleted = await delete_user_student(db, current_user.get("id"))
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Student user profile not found")
-
-    # Successful deletion returns 204 No Content
+    try:
+        deleted = await delete_user_student(db, current_user.get("id"))
+        if not deleted:
+            raise HTTPException(
+                status_code=404, detail="Student user profile not found"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete user profile. Please try again or contact support: {e}",
+        )
