@@ -5,7 +5,6 @@ from app.core.database import Base
 
 class RoleType(str, enum.Enum):
     coach = "coach"
-    manager = "manager"
     admin = "admin"
     owner = "owner"
 

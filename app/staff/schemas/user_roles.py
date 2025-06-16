@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 
-RoleType = Literal["student", "coach", "manager", "admin", "owner"]
+RoleType = Literal["student", "coach", "admin", "owner"]
 
 
 class UserRoleBase(BaseModel):
