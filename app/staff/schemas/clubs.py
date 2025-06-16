@@ -34,9 +34,6 @@ class ClubBase(BaseModel):
         None, max_length=255, description="Instagram profile URL"
     )
 
-    timezone: str = Field("Asia/Almaty", max_length=40, description="Club timezone")
-    currency: str = Field("KZT", max_length=8, description="Club currency")
-
     extra: dict[str, Any] = Field(
         default_factory=dict, description="Additional club metadata"
     )
@@ -89,44 +86,6 @@ class ClubBase(BaseModel):
                 )
         return v
 
-    @field_validator("timezone")
-    @classmethod
-    def validate_timezone(cls, v):
-        # Basic timezone validation
-        valid_timezones = [
-            "Asia/Almaty",
-            "Asia/Aqtobe",
-            "Asia/Aqtau",
-            "Asia/Oral",
-            "Asia/Qyzylorda",
-            "Europe/Moscow",
-            "Europe/Kiev",
-            "Asia/Tashkent",
-            "Asia/Bishkek",
-            "UTC",
-            "UTC+1",
-            "UTC+2",
-            "UTC+3",
-            "UTC+4",
-            "UTC+5",
-            "UTC+6",
-        ]
-        if v not in valid_timezones:
-            raise ValueError(
-                f"Unsupported timezone. Supported: {', '.join(valid_timezones)}"
-            )
-        return v
-
-    @field_validator("currency")
-    @classmethod
-    def validate_currency(cls, v):
-        valid_currencies = ["KZT", "USD", "EUR", "RUB", "UZS", "KGS"]
-        if v not in valid_currencies:
-            raise ValueError(
-                f"Unsupported currency. Supported: {', '.join(valid_currencies)}"
-            )
-        return v
-
 
 class ClubCreate(ClubBase):
     """Schema for creating a new club."""
@@ -149,9 +108,6 @@ class ClubUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=32)
     telegram_url: Optional[str] = Field(None, max_length=255)
     instagram_url: Optional[str] = Field(None, max_length=255)
-
-    timezone: Optional[str] = Field(None, max_length=40)
-    currency: Optional[str] = Field(None, max_length=8)
 
     extra: Optional[dict[str, Any]] = None
 
@@ -199,45 +155,6 @@ class ClubUpdate(BaseModel):
             ):
                 raise ValueError(
                     "Instagram URL must start with https://instagram.com/ or https://www.instagram.com/"
-                )
-        return v
-
-    @field_validator("timezone")
-    @classmethod
-    def validate_timezone(cls, v):
-        if v is not None:
-            valid_timezones = [
-                "Asia/Almaty",
-                "Asia/Aqtobe",
-                "Asia/Aqtau",
-                "Asia/Oral",
-                "Asia/Qyzylorda",
-                "Europe/Moscow",
-                "Europe/Kiev",
-                "Asia/Tashkent",
-                "Asia/Bishkek",
-                "UTC",
-                "UTC+1",
-                "UTC+2",
-                "UTC+3",
-                "UTC+4",
-                "UTC+5",
-                "UTC+6",
-            ]
-            if v not in valid_timezones:
-                raise ValueError(
-                    f"Unsupported timezone. Supported: {', '.join(valid_timezones)}"
-                )
-        return v
-
-    @field_validator("currency")
-    @classmethod
-    def validate_currency(cls, v):
-        if v is not None:
-            valid_currencies = ["KZT", "USD", "EUR", "RUB", "UZS", "KGS"]
-            if v not in valid_currencies:
-                raise ValueError(
-                    f"Unsupported currency. Supported: {', '.join(valid_currencies)}"
                 )
         return v
 

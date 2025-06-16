@@ -29,8 +29,6 @@ class Club(Base):
     instagram_url = Column(String(255), nullable=True)
 
     owner_id = Column(Integer, ForeignKey("user_staff.id"), nullable=True)
-    timezone = Column(String(40), default="Asia/Almaty")
-    currency = Column(String(8), default="KZT")
 
     extra = Column(JSON, nullable=True, default={})
 

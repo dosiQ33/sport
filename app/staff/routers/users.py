@@ -147,7 +147,7 @@ async def update_user_staff_preferences_route(
     db: AsyncSession = Depends(get_session),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Update user staff preferences (language, dark_mode, notifications, timezone)"""
+    """Update user staff preferences (language, dark_mode, notifications)"""
     db_user = await update_user_staff_preferences(
         db, preferences, current_user.get("id")
     )

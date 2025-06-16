@@ -81,7 +81,6 @@ async def create_user_staff(
         "language": current_user.get("language_code", None),
         "dark_mode": False,
         "notifications": True,
-        "timezone": "UTC+5",
     }
 
     user_preferences = user.preferences or {}

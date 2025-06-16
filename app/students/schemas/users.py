@@ -8,7 +8,6 @@ class UserStudentPreferences(BaseModel):
     language: Optional[str] = Field("ru", pattern=r"^[a-z]{2}$")
     dark_mode: Optional[bool] = False
     notifications: Optional[bool] = True
-    timezone: Optional[str] = "UTC+5"
 
     @field_validator("language")
     @classmethod
@@ -95,7 +94,6 @@ class PreferencesUpdate(BaseModel):
     language: Optional[str] = None
     dark_mode: Optional[bool] = None
     notifications: Optional[bool] = None
-    timezone: Optional[str] = None
 
     @field_validator("language")
     @classmethod
