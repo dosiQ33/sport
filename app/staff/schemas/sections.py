@@ -136,7 +136,6 @@ class SectionStats(BaseModel):
 
     id: int
     name: str
-    club_name: Optional[str] = None
     coach_name: Optional[str] = None
     capacity: Optional[int] = None
     level: Optional[str] = None

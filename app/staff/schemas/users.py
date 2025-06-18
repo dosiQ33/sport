@@ -4,6 +4,15 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
+class UserLimits(BaseModel):
+    """Схема для лимитов пользователя"""
+
+    clubs: int = Field(0, ge=0, le=10, description="Maximum number of clubs")
+    sections: int = Field(0, ge=0, le=30, description="Maximum number of sections")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class UserStaffPreferences(BaseModel):
     language: Optional[str] = Field("ru", pattern=r"^[a-z]{2}$")
     dark_mode: Optional[bool] = False
@@ -29,6 +38,7 @@ class UserStaffBase(BaseModel):
     username: Optional[str] = Field(None, max_length=64)
     photo_url: Optional[str] = Field(None, max_length=512)
     preferences: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    limits: UserLimits = Field(default_factory=lambda: UserLimits(clubs=0, sections=0))
 
     @field_validator("username")
     @classmethod
@@ -101,3 +111,24 @@ class UserStaffPreferencesUpdate(BaseModel):
         if v and v not in ["ru", "en", "kz", "uz", "ky"]:  # Add supported languages
             raise ValueError("Unsupported language code")
         return v
+
+
+# Новые схемы для работы с лимитами
+class UserLimitsUpdate(BaseModel):
+    """Схема для обновления лимитов пользователя (только для суперадмина)"""
+
+    clubs: Optional[int] = Field(None, ge=0, le=10)
+    sections: Optional[int] = Field(None, ge=0, le=30)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserLimitsResponse(BaseModel):
+    """Ответ с информацией о лимитах и текущем использовании"""
+
+    user_id: int
+    limits: UserLimits
+    current_usage: Dict[str, int] = Field(description="Current clubs/sections count")
+    available: Dict[str, int] = Field(description="Available slots")
+
+    model_config = ConfigDict(from_attributes=True)

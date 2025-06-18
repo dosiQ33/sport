@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, BigInteger
+from sqlalchemy import Column, Integer, String, DateTime, JSON, BigInteger, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -15,6 +15,10 @@ class UserStaff(Base):
     username = Column(String(64), nullable=True, index=True)
     preferences = Column(JSON, nullable=True, default={})
     photo_url = Column(String(256), nullable=True)
+
+    # Добавляем поля для лимитов и суперадмина
+    limits = Column(JSON, nullable=False, default={"clubs": 0, "sections": 0})
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

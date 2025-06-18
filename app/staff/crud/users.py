@@ -1,8 +1,14 @@
 from typing import Any, Dict
+from fastapi import HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.staff.crud.invitations import get_invitation_by_phone, mark_invitation_as_used
+from app.staff.models.roles import Role
+from app.staff.models.user_roles import UserRole
 from app.staff.models.users import UserStaff
+from app.staff.models.clubs import Club
+from app.staff.models.sections import Section
 from app.core.config import TELEGRAM_BOT_TOKEN
 from app.core.telegram_auth import TelegramAuth
 from app.staff.schemas.users import (
@@ -10,6 +16,7 @@ from app.staff.schemas.users import (
     UserStaffUpdate,
     UserStaffPreferencesUpdate,
     UserStaffFilters,
+    UserLimitsUpdate,
 )
 
 telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN)
@@ -77,6 +84,19 @@ async def create_user_staff(
     contact_data = telegram_auth.authenticate_contact_request(user.contact_init_data)
     phone_number = contact_data["contact"]["phone_number"]
 
+    # Проверяем, что пользователь с таким telegram_id не существует
+    existing_user = await get_user_staff_by_telegram_id(session, current_user.get("id"))
+    if existing_user:
+        raise ValueError("User with this Telegram ID already exists")
+
+    # Проверяем наличие приглашения
+    invitation = await get_invitation_by_phone(session, phone_number)
+    if not invitation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No valid invitation found for this phone number. Please contact the administrator.",
+        )
+
     default_preferences = {
         "language": current_user.get("language_code", None),
         "dark_mode": False,
@@ -86,6 +106,9 @@ async def create_user_staff(
     user_preferences = user.preferences or {}
     merged_preferences = {**default_preferences, **user_preferences}
 
+    # Дефолтные лимиты = 0
+    default_limits = {"clubs": 0, "sections": 0}
+
     user_data = {
         "telegram_id": current_user.get("id"),
         "first_name": current_user.get("first_name"),
@@ -94,15 +117,39 @@ async def create_user_staff(
         "phone_number": phone_number,
         "photo_url": current_user.get("photo_url", None),
         "preferences": merged_preferences,
+        "limits": default_limits,
     }
 
     try:
+        # Создаем пользователя
         db_user = UserStaff(**user_data)
         session.add(db_user)
+        await session.flush()  # Получаем ID пользователя
+
+        # Если приглашение для конкретного клуба, создаем роль
+        if invitation.club_id:
+            # Получаем ID роли
+            role_result = await session.execute(
+                select(Role).where(Role.code == invitation.role)
+            )
+            role = role_result.scalar_one()
+
+            # Создаем запись о роли в клубе
+            user_role = UserRole(
+                user_id=db_user.id,
+                club_id=invitation.club_id,
+                role_id=role.id,
+                is_active=True,
+            )
+            session.add(user_role)
+
+        # Помечаем приглашение как использованное
+        await mark_invitation_as_used(session, invitation.id, db_user.id)
+
         await session.commit()
         await session.refresh(db_user)
         return db_user
-    except:
+    except Exception as e:
         await session.rollback()
         raise
 
@@ -150,3 +197,88 @@ async def get_user_staff_preference(
         return None
 
     return db_user.preferences.get(preference_key)
+
+
+# Новые функции для работы с лимитами
+async def update_user_limits(
+    session: AsyncSession, user_id: int, limits_update: UserLimitsUpdate
+) -> UserStaff:
+    """Обновить лимиты пользователя (только для суперадмина)"""
+    db_user = await get_user_staff_by_id(session, user_id)
+    if not db_user:
+        raise ValueError(f"User with ID {user_id} not found")
+
+    # Получаем текущие лимиты
+    current_limits = db_user.limits or {"clubs": 0, "sections": 0}
+
+    # Обновляем только переданные значения
+    update_data = limits_update.model_dump(exclude_unset=True)
+    updated_limits = {**current_limits, **update_data}
+
+    db_user.limits = updated_limits
+
+    try:
+        await session.commit()
+        await session.refresh(db_user)
+        return db_user
+    except Exception as e:
+        await session.rollback()
+        raise
+
+
+async def get_user_current_counts(
+    session: AsyncSession, user_id: int
+) -> Dict[str, int]:
+    """Получить текущее количество клубов и секций пользователя"""
+
+    # Считаем клубы
+    clubs_result = await session.execute(
+        select(func.count(Club.id)).where(Club.owner_id == user_id)
+    )
+    clubs_count = clubs_result.scalar() or 0
+
+    # Считаем секции (те, где пользователь является owner клуба)
+    sections_result = await session.execute(
+        select(func.count(Section.id))
+        .join(Club, Section.club_id == Club.id)
+        .where(Club.owner_id == user_id)
+    )
+    sections_count = sections_result.scalar() or 0
+
+    return {"clubs": clubs_count, "sections": sections_count}
+
+
+async def check_user_limit(
+    session: AsyncSession, user_id: int, limit_type: str
+) -> Dict[str, Any]:
+    """
+    Проверить лимит пользователя
+
+    Args:
+        user_id: ID пользователя
+        limit_type: 'clubs' или 'sections'
+
+    Returns:
+        Dict с информацией о лимите: allowed, current, max_allowed
+    """
+    db_user = await get_user_staff_by_id(session, user_id)
+    if not db_user:
+        raise ValueError(f"User with ID {user_id} not found")
+
+    # Получаем лимиты
+    limits = db_user.limits or {"clubs": 0, "sections": 0}
+    max_allowed = limits.get(limit_type, 0)
+
+    # Получаем текущие значения
+    current_counts = await get_user_current_counts(session, user_id)
+    current_count = current_counts.get(limit_type, 0)
+
+    # Проверяем, можно ли создать еще один
+    can_create = current_count < max_allowed
+
+    return {
+        "allowed": can_create,
+        "current": current_count,
+        "max_allowed": max_allowed,
+        "available": max_allowed - current_count,
+    }

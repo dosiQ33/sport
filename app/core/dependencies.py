@@ -1,7 +1,7 @@
 from typing import Dict, Any
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.core.config import TELEGRAM_BOT_TOKEN
+from app.core.config import TELEGRAM_BOT_TOKEN, SUPERADMIN_TOKEN
 from app.core.telegram_auth import TelegramAuth
 
 security = HTTPBearer(
@@ -41,3 +41,18 @@ async def get_current_user(
             detail=f"Authentication failed: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def verify_superadmin_token(x_superadmin_token: str = Header(...)):
+    """Проверка токена суперадмина"""
+    if not SUPERADMIN_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SuperAdmin token not configured",
+        )
+
+    if x_superadmin_token != SUPERADMIN_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid superadmin token"
+        )
+    return True
