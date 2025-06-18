@@ -1,10 +1,12 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from app.staff.models.roles import Role, RoleType
 from app.staff.models.sections import Section
 from app.staff.models.clubs import Club
+from app.staff.models.user_roles import UserRole
 from app.staff.models.users import UserStaff
 from app.staff.schemas.sections import SectionCreate, SectionUpdate
 from app.staff.crud.clubs import check_user_club_permission
@@ -109,54 +111,282 @@ async def get_sections_paginated(
     return sections, total
 
 
+async def check_user_sections_limit_before_create(
+    session: AsyncSession, user_id: int, club_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Проверить лимиты пользователя на создание секций.
+
+    Args:
+        user_id: ID пользователя
+        club_id: ID клуба (опционально, для подсчета секций в конкретном клубе)
+
+    Returns:
+        Dict с информацией о лимитах и возможности создания
+    """
+    # Получаем пользователя
+    user_result = await session.execute(
+        select(UserStaff).where(UserStaff.id == user_id)
+    )
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise ValueError(f"User with ID {user_id} not found")
+
+    # Получаем текущее количество секций пользователя
+    # Считаем секции только в клубах, которыми владеет пользователь
+    sections_query = (
+        select(func.count(Section.id))
+        .join(Club, Section.club_id == Club.id)
+        .where(Club.owner_id == user_id)
+    )
+
+    if club_id:
+        # Если указан конкретный клуб, считаем только секции в нем
+        sections_query = sections_query.where(Club.id == club_id)
+
+    current_sections_result = await session.execute(sections_query)
+    current_sections_count = current_sections_result.scalar() or 0
+
+    # Получаем лимиты пользователя
+    user_limits = user.limits or {"clubs": 0, "sections": 0}
+    max_sections = user_limits.get("sections", 0)
+
+    can_create = current_sections_count < max_sections
+
+    return {
+        "can_create": can_create,
+        "current_sections": current_sections_count,
+        "max_sections": max_sections,
+        "remaining": max_sections - current_sections_count if can_create else 0,
+        "reason": (
+            None
+            if can_create
+            else f"Limit reached: {current_sections_count}/{max_sections}"
+        ),
+        "club_id": club_id,
+    }
+
+
+async def check_user_club_section_permission(
+    session: AsyncSession, user_id: int, club_id: int
+) -> Dict[str, Any]:
+    """
+    Проверить права пользователя на создание секций в конкретном клубе.
+
+    Args:
+        user_id: ID пользователя
+        club_id: ID клуба
+
+    Returns:
+        Dict с информацией о правах пользователя
+    """
+    # Проверяем существование клуба
+    club_result = await session.execute(select(Club).where(Club.id == club_id))
+    club = club_result.scalar_one_or_none()
+    if not club:
+        raise ValueError(f"Club with ID {club_id} not found")
+
+    # Проверяем, является ли пользователь владельцем клуба
+    is_owner = club.owner_id == user_id
+
+    # Проверяем роли пользователя в клубе
+    user_role_result = await session.execute(
+        select(UserRole, Role.code)
+        .join(Role, UserRole.role_id == Role.id)
+        .where(
+            and_(
+                UserRole.user_id == user_id,
+                UserRole.club_id == club_id,
+                UserRole.is_active == True,
+            )
+        )
+    )
+    user_role_data = user_role_result.first()
+
+    user_role = None
+    if user_role_data:
+        user_role = user_role_data[1].value  # Role code
+
+    # Определяем права
+    # Секции могут создавать: owner, admin
+    can_create_sections = is_owner or user_role in [
+        RoleType.owner.value,
+        RoleType.admin.value,
+    ]
+
+    return {
+        "can_create": can_create_sections,
+        "is_owner": is_owner,
+        "user_role": user_role,
+        "club_id": club_id,
+        "club_name": club.name,
+        "reason": (
+            None
+            if can_create_sections
+            else "No permission to create sections in this club"
+        ),
+    }
+
+
+async def check_user_can_create_section_in_club(
+    session: AsyncSession, user_id: int, club_id: int
+) -> Dict[str, Any]:
+    """
+    Комплексная проверка: может ли пользователь создать секцию в конкретном клубе.
+    Проверяет и лимиты, и права доступа.
+
+    Args:
+        user_id: ID пользователя
+        club_id: ID клуба
+
+    Returns:
+        Dict с полной информацией о возможности создания секции
+    """
+    try:
+        # 1. Проверяем права доступа к клубу
+        permission_check = await check_user_club_section_permission(
+            session, user_id, club_id
+        )
+
+        if not permission_check["can_create"]:
+            return {
+                "can_create": False,
+                "reason": permission_check["reason"],
+                "permission_check": permission_check,
+                "limits_check": None,
+            }
+
+        # 2. Проверяем лимиты пользователя
+        limits_check = await check_user_sections_limit_before_create(
+            session, user_id, club_id
+        )
+
+        if not limits_check["can_create"]:
+            return {
+                "can_create": False,
+                "reason": limits_check["reason"],
+                "permission_check": permission_check,
+                "limits_check": limits_check,
+            }
+
+        # 3. Все проверки пройдены
+        return {
+            "can_create": True,
+            "reason": None,
+            "permission_check": permission_check,
+            "limits_check": limits_check,
+        }
+
+    except ValueError as e:
+        return {
+            "can_create": False,
+            "reason": str(e),
+            "permission_check": None,
+            "limits_check": None,
+        }
+
+
+async def get_user_sections_stats(
+    session: AsyncSession, user_id: int
+) -> Dict[str, Any]:
+    """
+    Получить статистику по секциям пользователя.
+
+    Args:
+        user_id: ID пользователя
+
+    Returns:
+        Dict со статистикой
+    """
+    # Получаем пользователя
+    user_result = await session.execute(
+        select(UserStaff).where(UserStaff.id == user_id)
+    )
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise ValueError(f"User with ID {user_id} not found")
+
+    # Считаем секции по клубам пользователя
+    sections_by_club_result = await session.execute(
+        select(Club.id, Club.name, func.count(Section.id).label("sections_count"))
+        .outerjoin(Section, Club.id == Section.club_id)
+        .where(Club.owner_id == user_id)
+        .group_by(Club.id, Club.name)
+        .order_by(Club.name)
+    )
+
+    clubs_sections = []
+    total_sections = 0
+
+    for club_id, club_name, sections_count in sections_by_club_result:
+        clubs_sections.append(
+            {
+                "club_id": club_id,
+                "club_name": club_name,
+                "sections_count": sections_count or 0,
+            }
+        )
+        total_sections += sections_count or 0
+
+    # Получаем лимиты
+    user_limits = user.limits or {"clubs": 0, "sections": 0}
+    max_sections = user_limits.get("sections", 0)
+
+    return {
+        "user_id": user_id,
+        "total_sections": total_sections,
+        "max_sections": max_sections,
+        "remaining_sections": max_sections - total_sections,
+        "clubs_sections": clubs_sections,
+        "limits": user_limits,
+    }
+
+
+# Обновляем существующую функцию create_section
 async def create_section(
     session: AsyncSession, section: SectionCreate, user_id: int
 ) -> Section:
-    """Create a new section"""
-
-    # Verify club exists and user has permission
-    club_result = await session.execute(select(Club).where(Club.id == section.club_id))
-    club = club_result.scalar_one_or_none()
-    if not club:
-        raise ValueError(f"Club with ID {section.club_id} not found")
-
-    has_permission = await check_user_club_permission(session, user_id, section.club_id)
-    if not has_permission:
-        raise PermissionError(
-            "You don't have permission to create sections in this club"
-        )
-
-    # Verify coach exists if provided
-    if section.coach_id:
-        coach_result = await session.execute(
-            select(UserStaff).where(UserStaff.id == section.coach_id)
-        )
-        coach = coach_result.scalar_one_or_none()
-        if not coach:
-            raise ValueError(f"Coach with ID {section.coach_id} not found")
-
-    # Check if section name is unique within the club
-    existing_section = await session.execute(
-        select(Section).where(
-            and_(Section.club_id == section.club_id, Section.name == section.name)
-        )
-    )
-    if existing_section.scalar_one_or_none():
-        raise ValueError(
-            f"Section with name '{section.name}' already exists in this club"
-        )
+    """Create a new section with comprehensive checks"""
 
     try:
+        # 1. Комплексная проверка прав и лимитов
+        check_result = await check_user_can_create_section_in_club(
+            session, user_id, section.club_id
+        )
+
+        if not check_result["can_create"]:
+            raise ValueError(check_result["reason"])
+
+        # 2. Проверяем уникальность имени секции в клубе
+        existing_section = await session.execute(
+            select(Section).where(
+                and_(Section.club_id == section.club_id, Section.name == section.name)
+            )
+        )
+        if existing_section.scalar_one_or_none():
+            raise ValueError(
+                f"Section with name '{section.name}' already exists in this club"
+            )
+
+        # 3. Проверяем существование тренера (если указан)
+        if section.coach_id:
+            coach_result = await session.execute(
+                select(UserStaff).where(UserStaff.id == section.coach_id)
+            )
+            coach = coach_result.scalar_one_or_none()
+            if not coach:
+                raise ValueError(f"Coach with ID {section.coach_id} not found")
+
+        # 4. Создаем секцию
         section_data = section.model_dump()
         db_section = Section(**section_data)
         session.add(db_section)
-        await session.commit()
-        await session.refresh(db_section)
 
-        # Load relationships
+        await session.commit()
         await session.refresh(db_section, ["club", "coach"])
 
         return db_section
+
     except Exception as e:
         await session.rollback()
         raise

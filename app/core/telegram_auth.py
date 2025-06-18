@@ -63,7 +63,8 @@ class TelegramAuth:
         except TelegramAuthError:
             raise
         except Exception as e:
-            logger.error(f"Failed to parse init data: {str(e)}")
+            # Логируем только общую ошибку без деталей
+            logger.error("Failed to parse init data")
             raise TelegramAuthError("Invalid data format", "PARSE_ERROR")
 
     def validate_hash(self, init_data: str) -> bool:
@@ -105,7 +106,7 @@ class TelegramAuth:
         except TelegramAuthError:
             raise
         except Exception as e:
-            logger.error(f"Hash validation error: {str(e)}")
+            logger.error("Hash validation error occurred")
             raise TelegramAuthError("Hash validation failed", "HASH_VALIDATION_ERROR")
 
     def validate_auth_date(self, auth_date: str, max_age_seconds: int = 86400) -> bool:
@@ -176,7 +177,7 @@ class TelegramAuth:
         except TelegramAuthError:
             raise
         except Exception as e:
-            logger.error(f"Query validation error: {str(e)}")
+            logger.error("Query validation error occurred")
             raise TelegramAuthError("Query validation failed", "VALIDATION_ERROR")
 
     def authenticate(self, init_data: str) -> Dict[str, Any]:
@@ -216,8 +217,8 @@ class TelegramAuth:
             return parsed_data
 
         except TelegramAuthError as e:
-            # Log the specific error for debugging but don't expose details
-            logger.warning(f"Telegram auth failed: {e.error_code} - {e.message}")
+            # Логируем только код ошибки, без деталей
+            logger.warning(f"Telegram auth failed with code: {e.error_code}")
             # Always return generic error to client
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -225,8 +226,8 @@ class TelegramAuth:
                 headers={"WWW-Authenticate": "tma"},
             )
         except Exception as e:
-            # Log unexpected errors
-            logger.error(f"Unexpected auth error: {str(e)}")
+            # Логируем факт ошибки без деталей
+            logger.error("Unexpected authentication error occurred")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authentication failed",
@@ -252,20 +253,20 @@ class TelegramAuth:
             for field in required_contact_fields:
                 if field not in contact_data:
                     raise TelegramAuthError(
-                        f"Contact field '{field}' missing", "INCOMPLETE_CONTACT_DATA"
+                        f"Contact field missing", "INCOMPLETE_CONTACT_DATA"
                     )
 
             return parsed_data
 
         except TelegramAuthError as e:
-            logger.warning(f"Contact auth failed: {e.error_code} - {e.message}")
+            logger.warning(f"Contact auth failed with code: {e.error_code}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Contact authentication failed",
                 headers={"WWW-Authenticate": "tma"},
             )
         except Exception as e:
-            logger.error(f"Unexpected contact auth error: {str(e)}")
+            logger.error("Unexpected contact authentication error occurred")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Contact authentication failed",

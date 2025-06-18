@@ -8,11 +8,13 @@ from app.staff.schemas.invitations import (
     InvitationRead,
     InvitationListResponse,
 )
+from app.staff.schemas.users import UserLimitsUpdate, UserStaffRead
 from app.staff.crud.invitations import (
     create_invitation_by_superadmin,
     get_invitations_paginated,
     get_invitation_stats,
 )
+from app.staff.crud.users import update_user_limits_by_phone
 from app.core.dependencies import verify_superadmin_token
 
 router = APIRouter(prefix="/superadmin", tags=["SuperAdmin"])
@@ -70,6 +72,42 @@ async def get_all_invitations(
     return InvitationListResponse(
         invitations=invitations, total=total, page=page, size=size, pages=pages
     )
+
+
+@router.put("/users/limits/{phone_number}", response_model=UserStaffRead)
+async def update_user_limits_by_phone_number(
+    phone_number: str,
+    limits_update: UserLimitsUpdate,
+    db: AsyncSession = Depends(get_session),
+    is_superadmin: bool = Depends(verify_superadmin_token),
+):
+    """
+    Обновить лимиты пользователя по номеру телефона (только SuperAdmin).
+
+    - **phone_number**: Номер телефона пользователя
+    - **clubs**: Новый лимит клубов (опционально)
+    - **sections**: Новый лимит секций (опционально)
+
+    Требуется заголовок: X-SuperAdmin-Token
+
+    Пример использования:
+    ```
+    PUT /superadmin/users/limits/+77771234567
+    {
+        "clubs": 5,
+        "sections": 10
+    }
+    ```
+    """
+    try:
+        updated_user = await update_user_limits_by_phone(
+            db, phone_number, limits_update
+        )
+        return updated_user
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to update user limits")
 
 
 @router.get("/stats")

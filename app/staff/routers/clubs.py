@@ -16,9 +16,37 @@ from app.staff.crud.clubs import (
     update_club,
     delete_club,
     check_user_club_permission,
+    check_user_clubs_limit_before_create,
+    get_user_clubs_with_roles,
 )
 
 router = APIRouter(prefix="/clubs", tags=["Clubs"])
+
+
+@router.get("/limits/check")
+@limiter.limit("20/minute")
+async def check_club_creation_limits(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Проверить лимиты на создание клубов для текущего пользователя.
+
+    Возвращает информацию о том, может ли пользователь создать еще один клуб.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise HTTPException(
+            status_code=404,
+            detail="Staff user not found. Please register as staff first.",
+        )
+
+    try:
+        limits_info = await check_user_clubs_limit_before_create(db, user_staff.id)
+        return limits_info
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/", response_model=ClubRead, status_code=status.HTTP_201_CREATED)
@@ -32,6 +60,8 @@ async def create_new_club(
     """
     Create a new club. The authenticated user becomes the owner.
 
+    Automatically checks user limits before creation and creates owner role.
+
     - **name**: Unique club name (required)
     - **description**: Club description (optional)
     - **city**: City where club is located (optional)
@@ -39,6 +69,11 @@ async def create_new_club(
     - **phone**: Contact phone number (optional)
     - **telegram_url**: Telegram channel/group URL (optional)
     - **instagram_url**: Instagram profile URL (optional)
+
+    The system will:
+    1. Check if user has remaining club creation limit
+    2. Create the club with user as owner
+    3. Automatically assign owner role to user in UserRole table
     """
     # Get user from database to ensure they exist as staff
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
@@ -52,7 +87,14 @@ async def create_new_club(
         db_club = await create_club(db, club, user_staff.id)
         return db_club
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Проверяем, связана ли ошибка с лимитами
+        error_message = str(e)
+        if "limit" in error_message.lower() or "maximum" in error_message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=error_message
+            )
+        else:
+            raise HTTPException(status_code=400, detail=error_message)
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to create club")
 
@@ -117,6 +159,30 @@ async def get_my_clubs(
 
     clubs = await get_clubs_by_owner(db, user_staff.id)
     return clubs
+
+
+@router.get("/my/with-roles")
+@limiter.limit("20/minute")
+async def get_my_clubs_with_roles(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Get all clubs where the authenticated user has any role (owner, admin, coach).
+
+    Returns clubs with role information.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise HTTPException(status_code=404, detail="Staff user not found")
+
+    clubs_with_roles = await get_user_clubs_with_roles(db, user_staff.id)
+    return {
+        "clubs": clubs_with_roles,
+        "total": len(clubs_with_roles),
+        "user_id": user_staff.id,
+    }
 
 
 @router.get("/{club_id}", response_model=ClubRead)

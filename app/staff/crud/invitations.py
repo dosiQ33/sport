@@ -1,5 +1,5 @@
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import and_, func, or_
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,10 +15,47 @@ from app.staff.schemas.invitations import (
 )
 
 
-async def get_invitation_by_phone(
-    session: AsyncSession, phone_number: str
+async def get_active_invitation_by_phone_role_club(
+    session: AsyncSession,
+    phone_number: str,
+    role: RoleType,
+    club_id: Optional[int] = None,
 ) -> Optional[Invitation]:
-    """Получить активное приглашение по номеру телефона"""
+    """
+    Получить активное (неиспользованное и не истекшее) приглашение
+    для конкретной комбинации номер+роль+клуб
+    """
+    conditions = [
+        Invitation.phone_number == phone_number,
+        Invitation.role == role,
+        Invitation.is_used == False,
+        Invitation.expires_at > datetime.now(timezone.utc),
+    ]
+
+    if club_id is not None:
+        conditions.append(Invitation.club_id == club_id)
+    else:
+        # Для owner приглашений club_id должен быть NULL
+        conditions.append(Invitation.club_id.is_(None))
+
+    result = await session.execute(
+        select(Invitation)
+        .options(
+            selectinload(Invitation.club),
+            selectinload(Invitation.created_by),
+        )
+        .where(and_(*conditions))
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_any_active_invitation_by_phone(
+    session: AsyncSession, phone_number: str
+) -> List[Invitation]:
+    """
+    Получить все активные приглашения для номера телефона
+    (может быть несколько для разных ролей/клубов)
+    """
     result = await session.execute(
         select(Invitation)
         .options(
@@ -29,10 +66,12 @@ async def get_invitation_by_phone(
             and_(
                 Invitation.phone_number == phone_number,
                 Invitation.is_used == False,
+                Invitation.expires_at > datetime.now(timezone.utc),
             )
         )
+        .order_by(Invitation.created_at.desc())
     )
-    return result.scalar_one_or_none()
+    return result.scalars().all()
 
 
 async def get_invitation_by_id(
@@ -54,34 +93,49 @@ async def create_invitation_by_superadmin(
     session: AsyncSession,
     invitation_data: InvitationCreateBySuperAdmin,
     created_by_type: str = "superadmin",
+    expires_days: int = 7,
 ) -> Invitation:
     """Создать приглашение от суперадмина"""
 
-    # Проверяем, что не существует активного приглашения для этого номера
-    existing = await get_invitation_by_phone(session, invitation_data.phone_number)
+    # Проверяем, что не существует активного приглашения для этой комбинации
+    existing = await get_active_invitation_by_phone_role_club(
+        session,
+        invitation_data.phone_number,
+        invitation_data.role,
+        invitation_data.club_id,
+    )
     if existing:
         raise ValueError(
-            f"Active invitation for {invitation_data.phone_number} already exists"
+            f"Active invitation for {invitation_data.phone_number} "
+            f"with role {invitation_data.role} already exists"
         )
 
     # Для owner приглашений club_id должен быть NULL
     if invitation_data.role == RoleType.owner and invitation_data.club_id:
         raise ValueError("Owner invitations should not have club_id")
 
-    db_invitation = Invitation(
-        **invitation_data.model_dump(),
-        created_by_id=None,  # SuperAdmin не в базе
-        created_by_type=created_by_type,
-    )
+    # Вычисляем время истечения
+    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
-    session.add(db_invitation)
-    await session.commit()
-    await session.refresh(db_invitation)
+    try:
+        db_invitation = Invitation(
+            **invitation_data.model_dump(),
+            created_by_id=None,  # SuperAdmin не в базе
+            created_by_type=created_by_type,
+            expires_at=expires_at,
+        )
 
-    # Загружаем связанные данные (created_by будет None для superadmin)
-    await session.refresh(db_invitation, ["club"])
+        session.add(db_invitation)
+        await session.commit()
+        await session.refresh(db_invitation)
 
-    return db_invitation
+        # Загружаем связанные данные (created_by будет None для superadmin)
+        await session.refresh(db_invitation, ["club"])
+
+        return db_invitation
+    except Exception as e:
+        await session.rollback()
+        raise
 
 
 async def create_invitation_by_owner(
@@ -89,14 +143,18 @@ async def create_invitation_by_owner(
     invitation_data: InvitationCreateByOwner,
     owner_id: int,
     club_id: int,
+    expires_days: int = 7,
 ) -> Invitation:
     """Создать приглашение от владельца клуба"""
 
-    # Проверяем, что не существует активного приглашения для этого номера
-    existing = await get_invitation_by_phone(session, invitation_data.phone_number)
+    # Проверяем, что не существует активного приглашения для этой комбинации
+    existing = await get_active_invitation_by_phone_role_club(
+        session, invitation_data.phone_number, invitation_data.role, club_id
+    )
     if existing:
         raise ValueError(
-            f"Active invitation for {invitation_data.phone_number} already exists"
+            f"Active invitation for {invitation_data.phone_number} "
+            f"in this club with role {invitation_data.role} already exists"
         )
 
     # Проверяем, что клуб существует и принадлежит owner
@@ -111,36 +169,47 @@ async def create_invitation_by_owner(
     if invitation_data.role == RoleType.owner:
         raise ValueError("Owners cannot invite other owners")
 
-    db_invitation = Invitation(
-        phone_number=invitation_data.phone_number,
-        role=invitation_data.role,
-        club_id=club_id,
-        created_by_id=owner_id,
-        created_by_type="owner",
-    )
+    # Вычисляем время истечения
+    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
-    session.add(db_invitation)
-    await session.commit()
-    await session.refresh(db_invitation)
+    try:
+        db_invitation = Invitation(
+            phone_number=invitation_data.phone_number,
+            role=invitation_data.role,
+            club_id=club_id,
+            created_by_id=owner_id,
+            created_by_type="owner",
+            expires_at=expires_at,
+        )
 
-    # Загружаем связанные данные
-    await session.refresh(db_invitation, ["club", "created_by"])
+        session.add(db_invitation)
+        await session.commit()
+        await session.refresh(db_invitation)
 
-    return db_invitation
+        # Загружаем связанные данные
+        await session.refresh(db_invitation, ["club", "created_by"])
+
+        return db_invitation
+    except Exception as e:
+        await session.rollback()
+        raise
 
 
 async def mark_invitation_as_used(
     session: AsyncSession, invitation_id: int, user_id: int
 ) -> bool:
     """Пометить приглашение как использованное"""
-    invitation = await get_invitation_by_id(session, invitation_id)
-    if not invitation:
-        return False
+    try:
+        invitation = await get_invitation_by_id(session, invitation_id)
+        if not invitation:
+            return False
 
-    invitation.is_used = True
-
-    await session.commit()
-    return True
+        invitation.is_used = True
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        raise
 
 
 async def get_invitations_paginated(
@@ -151,6 +220,7 @@ async def get_invitations_paginated(
     club_id: Optional[int] = None,
     is_used: Optional[bool] = None,
     role: Optional[RoleType] = None,
+    include_expired: bool = False,
 ):
     """Получить список приглашений с пагинацией"""
     base_query = select(Invitation).options(
@@ -169,6 +239,10 @@ async def get_invitations_paginated(
         conditions.append(Invitation.is_used == is_used)
     if role is not None:
         conditions.append(Invitation.role == role)
+
+    # По умолчанию не показываем истекшие
+    if not include_expired:
+        conditions.append(Invitation.expires_at > datetime.now(timezone.utc))
 
     if conditions:
         filter_condition = and_(*conditions)
@@ -191,22 +265,50 @@ async def delete_invitation(
     session: AsyncSession, invitation_id: int, deleter_id: int
 ) -> bool:
     """Удалить приглашение"""
-    invitation = await get_invitation_by_id(session, invitation_id)
-    if not invitation:
-        return False
+    try:
+        invitation = await get_invitation_by_id(session, invitation_id)
+        if not invitation:
+            return False
 
-    # Проверяем права на удаление
-    deleter = await session.get(UserStaff, deleter_id)
-    if not deleter.is_superadmin and invitation.created_by_id != deleter_id:
-        raise PermissionError("You can only delete invitations you created")
+        # Проверяем права на удаление
+        deleter = await session.get(UserStaff, deleter_id)
+        if not deleter and invitation.created_by_id != deleter_id:
+            raise PermissionError("You can only delete invitations you created")
 
-    # Нельзя удалять использованные приглашения
-    if invitation.is_used:
-        raise ValueError("Cannot delete used invitation")
+        # Нельзя удалять использованные приглашения
+        if invitation.is_used:
+            raise ValueError("Cannot delete used invitation")
 
-    await session.delete(invitation)
-    await session.commit()
-    return True
+        await session.delete(invitation)
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        raise
+
+
+async def cleanup_expired_invitations(session: AsyncSession) -> int:
+    """Удалить истекшие неиспользованные приглашения"""
+    try:
+        # Удаляем приглашения которые истекли более 30 дней назад
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+
+        result = await session.execute(
+            select(Invitation).where(
+                and_(Invitation.expires_at < cutoff_date, Invitation.is_used == False)
+            )
+        )
+        expired_invitations = result.scalars().all()
+
+        count = len(expired_invitations)
+        for invitation in expired_invitations:
+            await session.delete(invitation)
+
+        await session.commit()
+        return count
+    except Exception as e:
+        await session.rollback()
+        raise
 
 
 async def get_invitation_stats(
@@ -222,6 +324,7 @@ async def get_invitation_stats(
         conditions.append(Invitation.club_id == club_id)
 
     base_condition = and_(*conditions) if conditions else True
+    now = datetime.now(timezone.utc)
 
     # Общее количество
     total_result = await session.execute(
@@ -238,15 +341,28 @@ async def get_invitation_stats(
     used = used_result.scalar() or 0
 
     # Активные (не использованные и не истекшие)
-    pending_result = await session.execute(
+    active_result = await session.execute(
         select(func.count(Invitation.id)).where(
             and_(
                 base_condition,
                 Invitation.is_used == False,
+                Invitation.expires_at > now,
             )
         )
     )
-    pending = pending_result.scalar() or 0
+    active = active_result.scalar() or 0
+
+    # Истекшие
+    expired_result = await session.execute(
+        select(func.count(Invitation.id)).where(
+            and_(
+                base_condition,
+                Invitation.is_used == False,
+                Invitation.expires_at <= now,
+            )
+        )
+    )
+    expired = expired_result.scalar() or 0
 
     # По ролям
     by_role_result = await session.execute(
@@ -259,7 +375,7 @@ async def get_invitation_stats(
     return {
         "total_invitations": total,
         "used_invitations": used,
-        "pending_invitations": pending,
-        "expired_invitations": total - used - pending,
+        "active_invitations": active,
+        "expired_invitations": expired,
         "by_role": by_role,
     }

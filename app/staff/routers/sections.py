@@ -17,9 +17,120 @@ from app.staff.crud.sections import (
     delete_section,
     get_section_statistics,
     toggle_section_status,
+    # Новые функции для проверки лимитов и прав
+    check_user_sections_limit_before_create,
+    check_user_club_section_permission,
+    check_user_can_create_section_in_club,
+    get_user_sections_stats,
 )
 
 router = APIRouter(prefix="/sections", tags=["Sections"])
+
+
+@router.get("/limits/check")
+@limiter.limit("20/minute")
+async def check_sections_creation_limits(
+    request: Request,
+    club_id: Optional[int] = Query(None, description="Check limits for specific club"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Проверить лимиты на создание секций для текущего пользователя.
+
+    Опционально можно указать club_id для проверки лимитов в конкретном клубе.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise HTTPException(
+            status_code=404,
+            detail="Staff user not found. Please register as staff first.",
+        )
+
+    try:
+        limits_info = await check_user_sections_limit_before_create(
+            db, user_staff.id, club_id
+        )
+        return limits_info
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/permissions/club/{club_id}")
+@limiter.limit("20/minute")
+async def check_club_section_permissions(
+    request: Request,
+    club_id: int = Path(..., description="Club ID"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Проверить права пользователя на создание секций в конкретном клубе.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise HTTPException(
+            status_code=404,
+            detail="Staff user not found. Please register as staff first.",
+        )
+
+    try:
+        permission_info = await check_user_club_section_permission(
+            db, user_staff.id, club_id
+        )
+        return permission_info
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/can-create/club/{club_id}")
+@limiter.limit("20/minute")
+async def check_can_create_section_in_club(
+    request: Request,
+    club_id: int = Path(..., description="Club ID"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Комплексная проверка: может ли пользователь создать секцию в конкретном клубе.
+
+    Проверяет и лимиты, и права доступа.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise HTTPException(
+            status_code=404,
+            detail="Staff user not found. Please register as staff first.",
+        )
+
+    check_result = await check_user_can_create_section_in_club(
+        db, user_staff.id, club_id
+    )
+    return check_result
+
+
+@router.get("/stats/my")
+@limiter.limit("20/minute")
+async def get_my_sections_stats(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Получить статистику по секциям текущего пользователя.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise HTTPException(
+            status_code=404,
+            detail="Staff user not found. Please register as staff first.",
+        )
+
+    try:
+        stats = await get_user_sections_stats(db, user_staff.id)
+        return stats
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/", response_model=SectionRead, status_code=status.HTTP_201_CREATED)
@@ -33,6 +144,11 @@ async def create_new_section(
     """
     Create a new section in a club.
 
+    Automatically checks:
+    - User permissions in the club (owner/admin)
+    - User section creation limits
+    - Section name uniqueness within club
+
     - **club_id**: ID of the club where section will be created
     - **name**: Section name (required, must be unique within club)
     - **level**: Skill level (beginner, intermediate, advanced, pro)
@@ -43,8 +159,6 @@ async def create_new_section(
     - **tags**: List of tags (e.g., ["boxing", "kids"])
     - **schedule**: JSON object with schedule information
     - **active**: Whether section is active (default: true)
-
-    Only club owners and admins can create sections.
     """
     # Get user from database to ensure they exist as staff
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
@@ -58,9 +172,23 @@ async def create_new_section(
         db_section = await create_section(db, section, user_staff.id)
         return db_section
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        error_message = str(e)
+        # Определяем тип ошибки для правильного HTTP кода
+        if any(
+            keyword in error_message.lower()
+            for keyword in ["limit", "maximum", "permission", "no permission"]
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=error_message
+            )
+        elif "not found" in error_message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=error_message
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=error_message
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to create section")
 
