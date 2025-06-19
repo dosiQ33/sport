@@ -11,6 +11,12 @@ from app.staff.models.users import UserStaff
 from app.staff.schemas.sections import SectionCreate, SectionUpdate
 from app.staff.crud.clubs import check_user_club_permission
 from app.staff.crud.clubs import check_user_club_permission
+from app.core.database import database_operation, retry_db_operation
+from app.core.exceptions import (
+    BusinessLogicError,
+    ResourceNotFoundError,
+    AuthorizationError,
+)
 
 
 async def get_section_by_id(session: AsyncSession, section_id: int):
@@ -116,13 +122,6 @@ async def check_user_sections_limit_before_create(
 ) -> Dict[str, Any]:
     """
     Проверить лимиты пользователя на создание секций.
-
-    Args:
-        user_id: ID пользователя
-        club_id: ID клуба (опционально, для подсчета секций в конкретном клубе)
-
-    Returns:
-        Dict с информацией о лимитах и возможности создания
     """
     # Получаем пользователя
     user_result = await session.execute(
@@ -130,10 +129,11 @@ async def check_user_sections_limit_before_create(
     )
     user = user_result.scalar_one_or_none()
     if not user:
-        raise ValueError(f"User with ID {user_id} not found")
+        raise ResourceNotFoundError(
+            f"User with ID {user_id} not found", error_code="USER_NOT_FOUND"
+        )
 
     # Получаем текущее количество секций пользователя
-    # Считаем секции только в клубах, которыми владеет пользователь
     sections_query = (
         select(func.count(Section.id))
         .join(Club, Section.club_id == Club.id)
@@ -141,7 +141,6 @@ async def check_user_sections_limit_before_create(
     )
 
     if club_id:
-        # Если указан конкретный клуб, считаем только секции в нем
         sections_query = sections_query.where(Club.id == club_id)
 
     current_sections_result = await session.execute(sections_query)
@@ -342,56 +341,61 @@ async def get_user_sections_stats(
     }
 
 
-# Обновляем существующую функцию create_section
+@retry_db_operation(max_attempts=3)
+@database_operation
 async def create_section(
     session: AsyncSession, section: SectionCreate, user_id: int
 ) -> Section:
     """Create a new section with comprehensive checks"""
 
-    try:
-        # 1. Комплексная проверка прав и лимитов
-        check_result = await check_user_can_create_section_in_club(
-            session, user_id, section.club_id
+    # 1. Комплексная проверка прав и лимитов
+    check_result = await check_user_can_create_section_in_club(
+        session, user_id, section.club_id
+    )
+
+    if not check_result["can_create"]:
+        raise BusinessLogicError(
+            check_result["reason"],
+            error_code="SECTION_CREATION_DENIED",
+            details=check_result,
         )
 
-        if not check_result["can_create"]:
-            raise ValueError(check_result["reason"])
-
-        # 2. Проверяем уникальность имени секции в клубе
-        existing_section = await session.execute(
-            select(Section).where(
-                and_(Section.club_id == section.club_id, Section.name == section.name)
-            )
+    # 2. Проверяем уникальность имени секции в клубе
+    existing_section = await session.execute(
+        select(Section).where(
+            and_(Section.club_id == section.club_id, Section.name == section.name)
         )
-        if existing_section.scalar_one_or_none():
-            raise ValueError(
-                f"Section with name '{section.name}' already exists in this club"
+    )
+    if existing_section.scalar_one_or_none():
+        raise BusinessLogicError(
+            f"Section with name '{section.name}' already exists in this club",
+            error_code="SECTION_NAME_EXISTS",
+        )
+
+    # 3. Проверяем существование тренера (если указан)
+    if section.coach_id:
+        coach_result = await session.execute(
+            select(UserStaff).where(UserStaff.id == section.coach_id)
+        )
+        coach = coach_result.scalar_one_or_none()
+        if not coach:
+            raise ResourceNotFoundError(
+                f"Coach with ID {section.coach_id} not found",
+                error_code="COACH_NOT_FOUND",
             )
 
-        # 3. Проверяем существование тренера (если указан)
-        if section.coach_id:
-            coach_result = await session.execute(
-                select(UserStaff).where(UserStaff.id == section.coach_id)
-            )
-            coach = coach_result.scalar_one_or_none()
-            if not coach:
-                raise ValueError(f"Coach with ID {section.coach_id} not found")
+    # 4. Создаем секцию
+    section_data = section.model_dump()
+    db_section = Section(**section_data)
+    session.add(db_section)
 
-        # 4. Создаем секцию
-        section_data = section.model_dump()
-        db_section = Section(**section_data)
-        session.add(db_section)
+    await session.commit()
+    await session.refresh(db_section, ["club", "coach"])
 
-        await session.commit()
-        await session.refresh(db_section, ["club", "coach"])
-
-        return db_section
-
-    except Exception as e:
-        await session.rollback()
-        raise
+    return db_section
 
 
+@database_operation
 async def update_section(
     session: AsyncSession,
     section_id: int,
@@ -401,14 +405,17 @@ async def update_section(
     """Update an existing section"""
     db_section = await get_section_by_id(session, section_id)
     if not db_section:
-        return None
+        raise ResourceNotFoundError(
+            f"Section with ID {section_id} not found", error_code="SECTION_NOT_FOUND"
+        )
 
     has_permission = await check_user_club_permission(
         session, user_id, db_section.club_id
     )
     if not has_permission:
-        raise PermissionError(
-            "You don't have permission to update sections in this club"
+        raise AuthorizationError(
+            "You don't have permission to update sections in this club",
+            error_code="INSUFFICIENT_PERMISSIONS",
         )
 
     update_data = section_update.model_dump(exclude_unset=True)
@@ -420,7 +427,10 @@ async def update_section(
         )
         coach = coach_result.scalar_one_or_none()
         if not coach:
-            raise ValueError(f"Coach with ID {update_data['coach_id']} not found")
+            raise ResourceNotFoundError(
+                f"Coach with ID {update_data['coach_id']} not found",
+                error_code="COACH_NOT_FOUND",
+            )
 
     # Check if new name conflicts with existing sections in the same club
     if "name" in update_data and update_data["name"] != db_section.name:
@@ -434,52 +444,43 @@ async def update_section(
             )
         )
         if existing_section.scalar_one_or_none():
-            raise ValueError(
-                f"Section with name '{update_data['name']}' already exists in this club"
+            raise BusinessLogicError(
+                f"Section with name '{update_data['name']}' already exists in this club",
+                error_code="SECTION_NAME_EXISTS",
             )
 
-    try:
-        for key, value in update_data.items():
-            setattr(db_section, key, value)
+    for key, value in update_data.items():
+        setattr(db_section, key, value)
 
-        await session.commit()
-        await session.refresh(db_section)
+    await session.commit()
+    await session.refresh(db_section)
+    await session.refresh(db_section, ["club", "coach"])
 
-        # Load relationships
-        await session.refresh(db_section, ["club", "coach"])
-
-        return db_section
-    except Exception as e:
-        await session.rollback()
-        raise
+    return db_section
 
 
+@database_operation
 async def delete_section(session: AsyncSession, section_id: int, user_id: int) -> bool:
     """Delete a section (or deactivate it)"""
     db_section = await get_section_by_id(session, section_id)
     if not db_section:
-        return False
+        raise ResourceNotFoundError(
+            f"Section with ID {section_id} not found", error_code="SECTION_NOT_FOUND"
+        )
 
     has_permission = await check_user_club_permission(
         session, user_id, db_section.club_id
     )
     if not has_permission:
-        raise PermissionError(
-            "You don't have permission to delete sections in this club"
+        raise AuthorizationError(
+            "You don't have permission to delete sections in this club",
+            error_code="INSUFFICIENT_PERMISSIONS",
         )
 
-    try:
-        # You can choose to either hard delete or soft delete (set active=False)
-        # For soft delete:
-        # db_section.active = False
-
-        # For hard delete:
-        await session.delete(db_section)
-        await session.commit()
-        return True
-    except Exception as e:
-        await session.rollback()
-        raise
+    # For hard delete:
+    await session.delete(db_section)
+    await session.commit()
+    return True
 
 
 async def get_section_statistics(session: AsyncSession, section_id: int):

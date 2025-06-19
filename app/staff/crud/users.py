@@ -1,5 +1,4 @@
 from typing import Any, Dict
-from fastapi import HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +20,13 @@ from app.staff.schemas.users import (
     UserStaffFilters,
     UserLimitsUpdate,
 )
+from app.core.database import database_operation, retry_db_operation
+from app.core.exceptions import (
+    BusinessLogicError,
+    ResourceNotFoundError,
+    AuthenticationError,
+)
+
 
 telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN)
 
@@ -89,6 +95,8 @@ async def get_users_staff_paginated(
     return users, total
 
 
+@retry_db_operation(max_attempts=3)
+@database_operation
 async def create_user_staff(
     session: AsyncSession, user: UserStaffCreate, current_user: Dict[str, Any]
 ):
@@ -98,14 +106,17 @@ async def create_user_staff(
     # Проверяем, что пользователь с таким telegram_id не существует
     existing_user = await get_user_staff_by_telegram_id(session, current_user.get("id"))
     if existing_user:
-        raise ValueError("User with this Telegram ID already exists")
+        raise BusinessLogicError(
+            "User with this Telegram ID already exists",
+            error_code="USER_ALREADY_EXISTS",
+        )
 
     active_invitations = await get_any_active_invitation_by_phone(session, phone_number)
 
     if not active_invitations:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No valid invitation found for this phone number. Please contact the administrator.",
+        raise AuthenticationError(
+            "No valid invitation found for this phone number. Please contact the administrator.",
+            error_code="NO_VALID_INVITATION",
         )
 
     # Выбираем приглашение с наивысшим приоритетом (owner > admin > coach)
@@ -140,38 +151,34 @@ async def create_user_staff(
         "limits": default_limits,
     }
 
-    try:
-        # Создаем пользователя
-        db_user = UserStaff(**user_data)
-        session.add(db_user)
-        await session.flush()  # Получаем ID пользователя
+    # Создаем пользователя
+    db_user = UserStaff(**user_data)
+    session.add(db_user)
+    await session.flush()  # Получаем ID пользователя
 
-        for inv in active_invitations:
-            if inv.club_id:
-                # Получаем ID роли
-                role_result = await session.execute(
-                    select(Role).where(Role.code == inv.role)
-                )
-                role = role_result.scalar_one()
+    for inv in active_invitations:
+        if inv.club_id:
+            # Получаем ID роли
+            role_result = await session.execute(
+                select(Role).where(Role.code == inv.role)
+            )
+            role = role_result.scalar_one()
 
-                # Создаем запись о роли в клубе
-                user_role = UserRole(
-                    user_id=db_user.id,
-                    club_id=inv.club_id,
-                    role_id=role.id,
-                    is_active=True,
-                )
-                session.add(user_role)
+            # Создаем запись о роли в клубе
+            user_role = UserRole(
+                user_id=db_user.id,
+                club_id=inv.club_id,
+                role_id=role.id,
+                is_active=True,
+            )
+            session.add(user_role)
 
-            # Помечаем приглашение как использованное
-            await mark_invitation_as_used(session, inv.id, db_user.id)
+        # Помечаем приглашение как использованное
+        await mark_invitation_as_used(session, inv.id, db_user.id)
 
-        await session.commit()
-        await session.refresh(db_user)
-        return db_user
-    except Exception as e:
-        await session.rollback()
-        raise
+    await session.commit()
+    await session.refresh(db_user)
+    return db_user
 
 
 async def update_user_staff(
@@ -219,13 +226,16 @@ async def get_user_staff_preference(
     return db_user.preferences.get(preference_key)
 
 
+@database_operation
 async def update_user_limits_by_phone(
     session: AsyncSession, phone_number: str, limits_update: UserLimitsUpdate
 ) -> UserStaff:
     """Обновить лимиты пользователя по номеру телефона (только для суперадмина)"""
     db_user = await get_user_staff_by_phone(session, phone_number)
     if not db_user:
-        raise ValueError(f"User with phone {phone_number} not found")
+        raise ResourceNotFoundError(
+            f"User with phone {phone_number} not found", error_code="USER_NOT_FOUND"
+        )
 
     # Получаем текущие лимиты
     current_limits = db_user.limits or {"clubs": 0, "sections": 0}
@@ -236,13 +246,9 @@ async def update_user_limits_by_phone(
 
     db_user.limits = updated_limits
 
-    try:
-        await session.commit()
-        await session.refresh(db_user)
-        return db_user
-    except Exception as e:
-        await session.rollback()
-        raise
+    await session.commit()
+    await session.refresh(db_user)
+    return db_user
 
 
 async def get_user_current_counts(

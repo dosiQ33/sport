@@ -6,18 +6,10 @@ from urllib.parse import unquote_plus
 import logging
 from typing import Dict, Any
 from datetime import datetime, timezone
-from fastapi import HTTPException, status
+
+from .exceptions import TelegramAuthError
 
 logger = logging.getLogger(__name__)
-
-
-class TelegramAuthError(Exception):
-    """Custom exception for Telegram authentication errors"""
-
-    def __init__(self, message: str, error_code: str = "AUTH_ERROR"):
-        self.message = message
-        self.error_code = error_code
-        super().__init__(self.message)
 
 
 class TelegramAuth:
@@ -219,20 +211,12 @@ class TelegramAuth:
         except TelegramAuthError as e:
             # Логируем только код ошибки, без деталей
             logger.warning(f"Telegram auth failed with code: {e.error_code}")
-            # Always return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication failed",
-                headers={"WWW-Authenticate": "tma"},
-            )
+            # Re-raise as TelegramAuthError instead of HTTPException
+            raise e
         except Exception as e:
             # Логируем факт ошибки без деталей
             logger.error("Unexpected authentication error occurred")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication failed",
-                headers={"WWW-Authenticate": "tma"},
-            )
+            raise TelegramAuthError("Authentication failed", "UNEXPECTED_ERROR")
 
     def authenticate_contact_request(self, init_data: str) -> Dict[str, Any]:
         """
@@ -260,15 +244,8 @@ class TelegramAuth:
 
         except TelegramAuthError as e:
             logger.warning(f"Contact auth failed with code: {e.error_code}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Contact authentication failed",
-                headers={"WWW-Authenticate": "tma"},
-            )
+            # Re-raise as TelegramAuthError instead of HTTPException
+            raise e
         except Exception as e:
             logger.error("Unexpected contact authentication error occurred")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Contact authentication failed",
-                headers={"WWW-Authenticate": "tma"},
-            )
+            raise TelegramAuthError("Contact authentication failed", "UNEXPECTED_ERROR")

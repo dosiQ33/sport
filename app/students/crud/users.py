@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.students.models.users import UserStudent
 from app.core.config import TELEGRAM_BOT_TOKEN
 from app.core.telegram_auth import TelegramAuth
+from app.core.database import database_operation, retry_db_operation
+from app.core.exceptions import BusinessLogicError
 from app.students.schemas.users import (
     UserStudentCreate,
     UserStudentUpdate,
@@ -73,6 +75,8 @@ async def get_user_students_paginated(
     return users, total
 
 
+@retry_db_operation(max_attempts=3)
+@database_operation
 async def create_user_student(
     session: AsyncSession, user: UserStudentCreate, current_user: Dict[str, Any]
 ):
@@ -98,23 +102,25 @@ async def create_user_student(
         "preferences": merged_preferences,
     }
 
-    try:
-        db_user = UserStudent(**user_data)
-        session.add(db_user)
-        await session.commit()
-        await session.refresh(db_user)
-        return db_user
-    except:
-        await session.rollback()
-        raise
+    db_user = UserStudent(**user_data)
+    session.add(db_user)
+    await session.commit()
+    await session.refresh(db_user)
+    return db_user
 
 
+@database_operation
 async def update_user_student(
     session: AsyncSession, telegram_id: int, user: UserStudentUpdate
 ):
     db_user = await get_user_student_by_telegram_id(session, telegram_id)
     if not db_user:
-        return None
+        from app.core.exceptions import ResourceNotFoundError
+
+        raise ResourceNotFoundError(
+            f"Student with telegram_id {telegram_id} not found",
+            error_code="STUDENT_NOT_FOUND",
+        )
 
     user_data = user.model_dump(exclude_unset=True)
     for key, value in user_data.items():

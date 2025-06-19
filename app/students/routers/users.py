@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
+from app.core.exceptions import ResourceNotFoundError, BusinessLogicError
 from app.students.schemas.users import (
     UserStudentCreate,
     UserStudentUpdate,
@@ -38,9 +39,9 @@ async def create_new_user_student(
 ):
     existing = await get_user_student_by_telegram_id(db, current_user.get("id"))
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Student with this telegram_id {current_user.get('id')} already exists.",
+        raise BusinessLogicError(
+            f"Student with this telegram_id {current_user.get('id')} already exists.",
+            error_code="STUDENT_ALREADY_EXISTS",
         )
 
     return await create_user_student(db, user, current_user)
@@ -56,9 +57,9 @@ async def get_current_user_student(
     """Get current authenticated student user profile."""
     user = await get_user_student_by_telegram_id(db, current_user.get("id"))
     if user is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Student user profile not found. Please register first.",
+        raise ResourceNotFoundError(
+            "Student user profile not found. Please register first.",
+            error_code="STUDENT_NOT_FOUND",
         )
     return user
 
@@ -70,7 +71,7 @@ async def get_user_student(
 ):
     user = await get_user_student_by_id(db, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="Student not found")
+        raise ResourceNotFoundError("Student not found", error_code="STUDENT_NOT_FOUND")
     return user
 
 
@@ -128,9 +129,8 @@ async def update_user_student_by_telegram_id(
     db: AsyncSession = Depends(get_session),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    # Убираем проверку на None - она теперь в CRUD функции
     db_user = await update_user_student(db, current_user.get("id"), user)
-    if db_user is None:
-        raise HTTPException(status_code=404, detail="Student not found")
     return db_user
 
 

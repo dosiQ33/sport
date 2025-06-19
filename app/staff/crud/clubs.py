@@ -8,6 +8,12 @@ from app.staff.models.users import UserStaff
 from app.staff.models.roles import Role, RoleType
 from app.staff.models.user_roles import UserRole
 from app.staff.schemas.clubs import ClubCreate, ClubUpdate
+from app.core.database import database_operation, retry_db_operation
+from app.core.exceptions import (
+    BusinessLogicError,
+    ResourceNotFoundError,
+    AuthorizationError,
+)
 
 
 async def get_club_by_id(session: AsyncSession, club_id: int):
@@ -71,59 +77,60 @@ async def get_clubs_paginated(
     return clubs, total
 
 
+@retry_db_operation(max_attempts=3)
+@database_operation
 async def create_club(session: AsyncSession, club: ClubCreate, owner_id: int) -> Club:
     """Create a new club with limits check and owner role assignment"""
 
-    try:
-        # 1. Проверяем лимиты пользователя
-        limits_check = await check_user_clubs_limit_before_create(session, owner_id)
+    # 1. Проверяем лимиты пользователя
+    limits_check = await check_user_clubs_limit_before_create(session, owner_id)
 
-        if not limits_check["can_create"]:
-            raise ValueError(
-                f"User has reached the maximum limit of {limits_check['max_clubs']} clubs. "
-                f"Current clubs: {limits_check['current_clubs']}. Contact administrator to increase limits."
-            )
-
-        # 2. Проверяем уникальность имени клуба
-        existing_club = await get_club_by_name(session, club.name)
-        if existing_club:
-            raise ValueError(f"Club with name '{club.name}' already exists")
-
-        # 3. Создаем клуб
-        club_data = club.model_dump()
-        club_data["owner_id"] = owner_id
-
-        db_club = Club(**club_data)
-        session.add(db_club)
-        await session.flush()  # Получаем ID клуба
-
-        # 4. Создаем owner роль для пользователя в этом клубе
-        # Получаем роль owner
-        owner_role_result = await session.execute(
-            select(Role).where(Role.code == RoleType.owner)
+    if not limits_check["can_create"]:
+        raise BusinessLogicError(
+            f"User has reached the maximum limit of {limits_check['max_clubs']} clubs. "
+            f"Current clubs: {limits_check['current_clubs']}. Contact administrator to increase limits.",
+            error_code="CLUBS_LIMIT_EXCEEDED",
+            details=limits_check,
         )
-        owner_role = owner_role_result.scalar_one()
 
-        # Создаем запись в user_roles
-        user_role = UserRole(
-            user_id=owner_id,
-            club_id=db_club.id,
-            role_id=owner_role.id,
-            is_active=True,
+    # 2. Проверяем уникальность имени клуба
+    existing_club = await get_club_by_name(session, club.name)
+    if existing_club:
+        raise BusinessLogicError(
+            f"Club with name '{club.name}' already exists",
+            error_code="CLUB_NAME_EXISTS",
         )
-        session.add(user_role)
 
-        # 5. Применяем все изменения
-        await session.commit()
-        await session.refresh(db_club, ["owner"])
+    # 3. Создаем клуб
+    club_data = club.model_dump()
+    club_data["owner_id"] = owner_id
 
-        return db_club
+    db_club = Club(**club_data)
+    session.add(db_club)
+    await session.flush()  # Получаем ID клуба
 
-    except Exception as e:
-        await session.rollback()
-        raise
+    # 4. Создаем owner роль для пользователя в этом клубе
+    owner_role_result = await session.execute(
+        select(Role).where(Role.code == RoleType.owner)
+    )
+    owner_role = owner_role_result.scalar_one()
+
+    user_role = UserRole(
+        user_id=owner_id,
+        club_id=db_club.id,
+        role_id=owner_role.id,
+        is_active=True,
+    )
+    session.add(user_role)
+
+    # 5. Применяем все изменения
+    await session.commit()
+    await session.refresh(db_club, ["owner"])
+
+    return db_club
 
 
+@database_operation
 async def update_club(
     session: AsyncSession,
     club_id: int,
@@ -132,60 +139,60 @@ async def update_club(
 ) -> Optional[Club]:
     """Update an existing club"""
 
-    try:
-        db_club = await get_club_by_id(session, club_id)
-        if not db_club:
-            return None
+    db_club = await get_club_by_id(session, club_id)
+    if not db_club:
+        raise ResourceNotFoundError(
+            f"Club with ID {club_id} not found", error_code="CLUB_NOT_FOUND"
+        )
 
-        # If owner_id is provided, verify ownership
-        if owner_id and db_club.owner_id != owner_id:
-            raise PermissionError("You can only update clubs you own")
+    # If owner_id is provided, verify ownership
+    if owner_id and db_club.owner_id != owner_id:
+        raise AuthorizationError(
+            "You can only update clubs you own", error_code="INSUFFICIENT_PERMISSIONS"
+        )
 
-        # Check if new name conflicts with existing clubs
-        update_data = club_update.model_dump(exclude_unset=True)
-        if "name" in update_data and update_data["name"] != db_club.name:
-            existing_club = await get_club_by_name(session, update_data["name"])
-            if existing_club:
-                raise ValueError(
-                    f"Club with name '{update_data['name']}' already exists"
-                )
+    # Check if new name conflicts with existing clubs
+    update_data = club_update.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] != db_club.name:
+        existing_club = await get_club_by_name(session, update_data["name"])
+        if existing_club:
+            raise BusinessLogicError(
+                f"Club with name '{update_data['name']}' already exists",
+                error_code="CLUB_NAME_EXISTS",
+            )
 
-        for key, value in update_data.items():
-            setattr(db_club, key, value)
+    for key, value in update_data.items():
+        setattr(db_club, key, value)
 
-        await session.commit()
-        await session.refresh(db_club, ["owner"])
+    await session.commit()
+    await session.refresh(db_club, ["owner"])
 
-        return db_club
-
-    except Exception as e:
-        await session.rollback()
-        raise
+    return db_club
 
 
+@database_operation
 async def delete_club(
     session: AsyncSession, club_id: int, owner_id: Optional[int] = None
 ) -> bool:
     """Delete a club (hard delete with cascading)"""
 
-    try:
-        db_club = await get_club_by_id(session, club_id)
-        if not db_club:
-            return False
+    db_club = await get_club_by_id(session, club_id)
+    if not db_club:
+        raise ResourceNotFoundError(
+            f"Club with ID {club_id} not found", error_code="CLUB_NOT_FOUND"
+        )
 
-        # If owner_id is provided, verify ownership
-        if owner_id and db_club.owner_id != owner_id:
-            raise PermissionError("You can only delete clubs you own")
+    # If owner_id is provided, verify ownership
+    if owner_id and db_club.owner_id != owner_id:
+        raise AuthorizationError(
+            "You can only delete clubs you own", error_code="INSUFFICIENT_PERMISSIONS"
+        )
 
-        # Удаляем клуб (связанные записи удалятся автоматически из-за cascade)
-        await session.delete(db_club)
-        await session.commit()
+    # Удаляем клуб (связанные записи удалятся автоматически из-за cascade)
+    await session.delete(db_club)
+    await session.commit()
 
-        return True
-
-    except Exception as e:
-        await session.rollback()
-        raise
+    return True
 
 
 async def check_user_club_permission(
@@ -261,7 +268,9 @@ async def check_user_clubs_limit_before_create(
     )
     user = user_result.scalar_one_or_none()
     if not user:
-        raise ValueError(f"User with ID {user_id} not found")
+        raise ResourceNotFoundError(
+            f"User with ID {user_id} not found", error_code="USER_NOT_FOUND"
+        )
 
     # Получаем текущее количество клубов
     current_clubs_result = await session.execute(

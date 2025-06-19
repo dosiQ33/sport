@@ -13,6 +13,12 @@ from app.staff.schemas.invitations import (
     InvitationCreateBySuperAdmin,
     InvitationCreateByOwner,
 )
+from app.core.database import database_operation, retry_db_operation
+from app.core.exceptions import (
+    BusinessLogicError,
+    ResourceNotFoundError,
+    AuthorizationError,
+)
 
 
 async def get_active_invitation_by_phone_role_club(
@@ -89,6 +95,8 @@ async def get_invitation_by_id(
     return result.scalar_one_or_none()
 
 
+@retry_db_operation(max_attempts=3)
+@database_operation
 async def create_invitation_by_superadmin(
     session: AsyncSession,
     invitation_data: InvitationCreateBySuperAdmin,
@@ -105,39 +113,41 @@ async def create_invitation_by_superadmin(
         invitation_data.club_id,
     )
     if existing:
-        raise ValueError(
+        raise BusinessLogicError(
             f"Active invitation for {invitation_data.phone_number} "
-            f"with role {invitation_data.role} already exists"
+            f"with role {invitation_data.role} already exists",
+            error_code="INVITATION_ALREADY_EXISTS",
         )
 
     # Для owner приглашений club_id должен быть NULL
     if invitation_data.role == RoleType.owner and invitation_data.club_id:
-        raise ValueError("Owner invitations should not have club_id")
+        raise BusinessLogicError(
+            "Owner invitations should not have club_id",
+            error_code="INVALID_OWNER_INVITATION",
+        )
 
     # Вычисляем время истечения
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
-    try:
-        db_invitation = Invitation(
-            **invitation_data.model_dump(),
-            created_by_id=None,  # SuperAdmin не в базе
-            created_by_type=created_by_type,
-            expires_at=expires_at,
-        )
+    db_invitation = Invitation(
+        **invitation_data.model_dump(),
+        created_by_id=None,  # SuperAdmin не в базе
+        created_by_type=created_by_type,
+        expires_at=expires_at,
+    )
 
-        session.add(db_invitation)
-        await session.commit()
-        await session.refresh(db_invitation)
+    session.add(db_invitation)
+    await session.commit()
+    await session.refresh(db_invitation)
 
-        # Загружаем связанные данные (created_by будет None для superadmin)
-        await session.refresh(db_invitation, ["club"])
+    # Загружаем связанные данные (created_by будет None для superadmin)
+    await session.refresh(db_invitation, ["club"])
 
-        return db_invitation
-    except Exception as e:
-        await session.rollback()
-        raise
+    return db_invitation
 
 
+@retry_db_operation(max_attempts=3)
+@database_operation
 async def create_invitation_by_owner(
     session: AsyncSession,
     invitation_data: InvitationCreateByOwner,
@@ -152,9 +162,10 @@ async def create_invitation_by_owner(
         session, invitation_data.phone_number, invitation_data.role, club_id
     )
     if existing:
-        raise ValueError(
+        raise BusinessLogicError(
             f"Active invitation for {invitation_data.phone_number} "
-            f"in this club with role {invitation_data.role} already exists"
+            f"in this club with role {invitation_data.role} already exists",
+            error_code="INVITATION_ALREADY_EXISTS",
         )
 
     # Проверяем, что клуб существует и принадлежит owner
@@ -163,36 +174,36 @@ async def create_invitation_by_owner(
     )
     club = club_result.scalar_one_or_none()
     if not club:
-        raise ValueError("Club not found or you don't own it")
+        raise AuthorizationError(
+            "Club not found or you don't own it", error_code="CLUB_ACCESS_DENIED"
+        )
 
     # Не-owner роли ДОЛЖНЫ иметь club_id
     if invitation_data.role == RoleType.owner:
-        raise ValueError("Owners cannot invite other owners")
+        raise BusinessLogicError(
+            "Owners cannot invite other owners", error_code="INVALID_ROLE_INVITATION"
+        )
 
     # Вычисляем время истечения
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
-    try:
-        db_invitation = Invitation(
-            phone_number=invitation_data.phone_number,
-            role=invitation_data.role,
-            club_id=club_id,
-            created_by_id=owner_id,
-            created_by_type="owner",
-            expires_at=expires_at,
-        )
+    db_invitation = Invitation(
+        phone_number=invitation_data.phone_number,
+        role=invitation_data.role,
+        club_id=club_id,
+        created_by_id=owner_id,
+        created_by_type="owner",
+        expires_at=expires_at,
+    )
 
-        session.add(db_invitation)
-        await session.commit()
-        await session.refresh(db_invitation)
+    session.add(db_invitation)
+    await session.commit()
+    await session.refresh(db_invitation)
 
-        # Загружаем связанные данные
-        await session.refresh(db_invitation, ["club", "created_by"])
+    # Загружаем связанные данные
+    await session.refresh(db_invitation, ["club", "created_by"])
 
-        return db_invitation
-    except Exception as e:
-        await session.rollback()
-        raise
+    return db_invitation
 
 
 async def mark_invitation_as_used(
@@ -261,30 +272,35 @@ async def get_invitations_paginated(
     return invitations, total
 
 
+@database_operation
 async def delete_invitation(
     session: AsyncSession, invitation_id: int, deleter_id: int
 ) -> bool:
     """Удалить приглашение"""
-    try:
-        invitation = await get_invitation_by_id(session, invitation_id)
-        if not invitation:
-            return False
+    invitation = await get_invitation_by_id(session, invitation_id)
+    if not invitation:
+        raise ResourceNotFoundError(
+            f"Invitation with ID {invitation_id} not found",
+            error_code="INVITATION_NOT_FOUND",
+        )
 
-        # Проверяем права на удаление
-        deleter = await session.get(UserStaff, deleter_id)
-        if not deleter and invitation.created_by_id != deleter_id:
-            raise PermissionError("You can only delete invitations you created")
+    # Проверяем права на удаление
+    deleter = await session.get(UserStaff, deleter_id)
+    if not deleter and invitation.created_by_id != deleter_id:
+        raise AuthorizationError(
+            "You can only delete invitations you created",
+            error_code="INSUFFICIENT_PERMISSIONS",
+        )
 
-        # Нельзя удалять использованные приглашения
-        if invitation.is_used:
-            raise ValueError("Cannot delete used invitation")
+    # Нельзя удалять использованные приглашения
+    if invitation.is_used:
+        raise BusinessLogicError(
+            "Cannot delete used invitation", error_code="INVITATION_ALREADY_USED"
+        )
 
-        await session.delete(invitation)
-        await session.commit()
-        return True
-    except Exception as e:
-        await session.rollback()
-        raise
+    await session.delete(invitation)
+    await session.commit()
+    return True
 
 
 async def cleanup_expired_invitations(session: AsyncSession) -> int:

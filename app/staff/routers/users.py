@@ -14,7 +14,6 @@ from app.staff.schemas.users import (
     UserStaffPreferencesUpdate,
     UserStaffFilters,
 )
-
 from app.staff.crud.users import (
     get_user_staff_by_id,
     get_user_staff_by_telegram_id,
@@ -24,6 +23,7 @@ from app.staff.crud.users import (
     update_user_staff_preferences,
     get_user_staff_preference,
 )
+
 
 router = APIRouter(prefix="/staff", tags=["Staff"])
 

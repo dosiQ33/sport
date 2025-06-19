@@ -10,7 +10,7 @@ from app.staff.schemas.invitations import (
     InvitationRead,
     InvitationListResponse,
 )
-
+from app.core.exceptions import ResourceNotFoundError, AuthorizationError
 from app.staff.crud.users import get_user_staff_by_telegram_id
 from app.staff.crud.invitations import (
     create_invitation_by_owner,
@@ -66,12 +66,11 @@ async def get_my_invitations(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    """
-    Получить приглашения, созданные текущим пользователем.
-    """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise ResourceNotFoundError(
+            "Staff user not found", error_code="STAFF_USER_NOT_FOUND"
+        )
 
     skip = (page - 1) * size
     invitations, total = await get_invitations_paginated(
@@ -96,20 +95,18 @@ async def get_club_invitations(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    """
-    Получить все приглашения для конкретного клуба.
-    Доступно только владельцу клуба.
-    """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise ResourceNotFoundError(
+            "Staff user not found", error_code="STAFF_USER_NOT_FOUND"
+        )
 
     # Проверяем права доступа
     from app.staff.crud.clubs import check_user_club_permission
 
     has_permission = await check_user_club_permission(db, user_staff.id, club_id)
     if not has_permission:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError("Access denied", error_code="INSUFFICIENT_PERMISSIONS")
 
     skip = (page - 1) * size
     invitations, total = await get_invitations_paginated(
@@ -131,17 +128,18 @@ async def get_invitation(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    """
-    Получить информацию о приглашении по ID.
-    """
     invitation = await get_invitation_by_id(db, invitation_id)
     if not invitation:
-        raise HTTPException(status_code=404, detail="Invitation not found")
+        raise ResourceNotFoundError(
+            "Invitation not found", error_code="INVITATION_NOT_FOUND"
+        )
 
     # Проверяем права доступа
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise ResourceNotFoundError(
+            "Staff user not found", error_code="STAFF_USER_NOT_FOUND"
+        )
 
     # Можно видеть только свои приглашения или если есть права на клуб
     if invitation.created_by_id != user_staff.id:
@@ -152,9 +150,13 @@ async def get_invitation(
                 db, user_staff.id, invitation.club_id
             )
             if not has_permission:
-                raise HTTPException(status_code=403, detail="Access denied")
+                raise AuthorizationError(
+                    "Access denied", error_code="INSUFFICIENT_PERMISSIONS"
+                )
         else:
-            raise HTTPException(status_code=403, detail="Access denied")
+            raise AuthorizationError(
+                "Access denied", error_code="INSUFFICIENT_PERMISSIONS"
+            )
 
     return invitation
 
@@ -192,12 +194,11 @@ async def get_my_invitation_stats(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    """
-    Получить статистику по своим приглашениям.
-    """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise ResourceNotFoundError(
+            "Staff user not found", error_code="STAFF_USER_NOT_FOUND"
+        )
 
     stats = await get_invitation_stats(db, created_by_id=user_staff.id)
     return stats
