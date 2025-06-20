@@ -4,6 +4,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.exceptions import ValidationError
+
 
 SectionLevel = Literal["beginner", "intermediate", "advanced", "pro"]
 
@@ -31,7 +33,7 @@ class SectionBase(BaseModel):
     @classmethod
     def validate_name(cls, v):
         if not v or not v.strip():
-            raise ValueError("Section name cannot be empty")
+            raise ValidationError("Section name cannot be empty")
         return v.strip()
 
     @field_validator("tags")
@@ -70,7 +72,7 @@ class SectionUpdate(BaseModel):
     def validate_name(cls, v):
         if v is not None:
             if not v or not v.strip():
-                raise ValueError("Section name cannot be empty")
+                raise ValidationError("Section name cannot be empty")
             return v.strip()
         return v
 

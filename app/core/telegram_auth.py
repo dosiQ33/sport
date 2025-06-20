@@ -8,6 +8,8 @@ from typing import Dict, Any
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
+from app.core.exceptions import ValidationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ class TelegramAuthError(Exception):
 class TelegramAuth:
     def __init__(self, bot_token: str):
         if not bot_token:
-            raise ValueError("Bot token is required")
+            raise ValidationError("Bot token is required")
         self.bot_token = bot_token
         self.secret_key = hashlib.sha256(bot_token.encode()).digest()
 

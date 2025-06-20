@@ -1,11 +1,12 @@
 import math
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
+from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional
 
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
+from app.core.exceptions import NotFoundError, DuplicateError
 from app.staff.schemas.users import (
     UserStaffCreate,
     UserStaffUpdate,
@@ -36,13 +37,18 @@ async def create_new_user_staff(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
+    """
+    Create a new staff user.
+
+    Requires valid Telegram authentication and an active invitation for the phone number.
+    The system will automatically assign roles based on available invitations.
+    """
+    # Проверяем существование пользователя
     existing = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"User with this telegram_id {current_user.get('id')} already exists.",
-        )
+        raise DuplicateError("Staff user", "telegram_id", str(current_user.get("id")))
 
+    # Все остальные проверки и ошибки обрабатываются в CRUD
     return await create_user_staff(db, user, current_user)
 
 
@@ -60,11 +66,9 @@ async def get_current_user_staff(
     based on the Telegram authentication token.
     """
     user = await get_user_staff_by_telegram_id(db, current_user.get("id"))
-    if user is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user profile not found. Please register first.",
-        )
+    if not user:
+        raise NotFoundError("Staff user", "Please register as staff first")
+
     return user
 
 
@@ -73,9 +77,13 @@ async def get_current_user_staff(
 async def get_user_staff(
     request: Request, user_id: int, db: AsyncSession = Depends(get_session)
 ):
+    """
+    Get staff user by ID.
+
+    - **user_id**: Unique staff user identifier
+    """
+    # Валидация и ошибки обрабатываются в CRUD
     user = await get_user_staff_by_id(db, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
@@ -100,6 +108,16 @@ async def get_users_staff_list(
     ),
     db: AsyncSession = Depends(get_session),
 ):
+    """
+    Get paginated list of staff users with optional filters.
+
+    - **page**: Page number (starts from 1)
+    - **size**: Number of users per page (max 100)
+    - **first_name**: Filter by first name (partial match)
+    - **last_name**: Filter by last name (partial match)
+    - **phone_number**: Filter by phone number (partial match)
+    - **username**: Filter by username (partial match)
+    """
     skip = (page - 1) * size
 
     # Создаем объект фильтров
@@ -114,6 +132,7 @@ async def get_users_staff_list(
     if not any([first_name, last_name, phone_number, username]):
         filters = None
 
+    # Валидация параметров происходит в CRUD
     users, total = await get_users_staff_paginated(
         db, skip=skip, limit=size, filters=filters
     )
@@ -133,9 +152,14 @@ async def update_user_staff_by_telegram_id(
     db: AsyncSession = Depends(get_session),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    """
+    Update current staff user profile.
+
+    - All fields are optional in update
+    - Only the authenticated user can update their own profile
+    """
+    # Ошибки обрабатываются в CRUD
     db_user = await update_user_staff(db, current_user.get("id"), user)
-    if db_user is None:
-        raise HTTPException(status_code=404, detail="User not found")
     return db_user
 
 
@@ -147,12 +171,17 @@ async def update_user_staff_preferences_route(
     db: AsyncSession = Depends(get_session),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Update user staff preferences (language, dark_mode, notifications)"""
+    """
+    Update user staff preferences (language, dark_mode, notifications).
+
+    - **language**: Language code (ru, en, kz, uz, ky)
+    - **dark_mode**: Enable/disable dark mode
+    - **notifications**: Enable/disable notifications
+    """
+    # Ошибки обрабатываются в CRUD
     db_user = await update_user_staff_preferences(
         db, preferences, current_user.get("id")
     )
-    if db_user is None:
-        raise HTTPException(status_code=404, detail="User not found")
     return db_user
 
 
@@ -164,10 +193,14 @@ async def get_user_staff_preference_route(
     preference_key: str,
     db: AsyncSession = Depends(get_session),
 ):
-    """Get specific user staff preference by key"""
+    """
+    Get specific user staff preference by key.
+
+    - **telegram_id**: User's Telegram ID
+    - **preference_key**: Preference key to retrieve
+    """
+    # Валидация и ошибки обрабатываются в CRUD
     preference_value = await get_user_staff_preference(db, telegram_id, preference_key)
-    if preference_value is None:
-        raise HTTPException(status_code=404, detail="User or preference not found")
 
     return {
         "telegram_id": telegram_id,

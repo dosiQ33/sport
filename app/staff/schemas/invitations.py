@@ -2,6 +2,7 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
+from app.core.exceptions import ValidationError
 from app.staff.schemas.roles import RoleType
 import re
 
@@ -17,7 +18,7 @@ class InvitationBase(BaseModel):
         # Базовая валидация номера телефона
         clean_phone = re.sub(r"\s+", "", v)
         if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
-            raise ValueError("Invalid phone number format")
+            raise ValidationError("Invalid phone number format")
         return clean_phone
 
 
@@ -39,7 +40,7 @@ class InvitationCreateByOwner(BaseModel):
         # Owner может приглашать только admin, coach
         allowed_roles = {RoleType.admin, RoleType.coach}
         if v not in allowed_roles:
-            raise ValueError("Owner can invite only roles: admin or coach")
+            raise ValidationError("Owner can invite only roles: admin or coach")
         return v
 
     @field_validator("phone_number")
@@ -47,7 +48,7 @@ class InvitationCreateByOwner(BaseModel):
     def validate_phone(cls, v):
         clean_phone = re.sub(r"\s+", "", v)
         if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
-            raise ValueError("Invalid phone number format")
+            raise ValidationError("Invalid phone number format")
         return clean_phone
 
 

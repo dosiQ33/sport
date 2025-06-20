@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Path
+from fastapi import APIRouter, Depends, Query, status, Request, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional, List
 
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
+from app.core.exceptions import NotFoundError
 from app.staff.schemas.sections import SectionCreate, SectionUpdate, SectionRead
 from app.staff.crud.users import get_user_staff_by_telegram_id
 from app.staff.crud.sections import (
@@ -17,7 +18,7 @@ from app.staff.crud.sections import (
     delete_section,
     get_section_statistics,
     toggle_section_status,
-    # Новые функции для проверки лимитов и прав
+    # Функции для проверки лимитов и прав
     check_user_sections_limit_before_create,
     check_user_club_section_permission,
     check_user_can_create_section_in_club,
@@ -42,18 +43,13 @@ async def check_sections_creation_limits(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user not found. Please register as staff first.",
-        )
+        raise NotFoundError("Staff user", "Please register as staff first")
 
-    try:
-        limits_info = await check_user_sections_limit_before_create(
-            db, user_staff.id, club_id
-        )
-        return limits_info
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    # Валидация и ошибки обрабатываются в CRUD
+    limits_info = await check_user_sections_limit_before_create(
+        db, user_staff.id, club_id
+    )
+    return limits_info
 
 
 @router.get("/permissions/club/{club_id}")
@@ -69,18 +65,13 @@ async def check_club_section_permissions(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user not found. Please register as staff first.",
-        )
+        raise NotFoundError("Staff user", "Please register as staff first")
 
-    try:
-        permission_info = await check_user_club_section_permission(
-            db, user_staff.id, club_id
-        )
-        return permission_info
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    # Валидация и ошибки обрабатываются в CRUD
+    permission_info = await check_user_club_section_permission(
+        db, user_staff.id, club_id
+    )
+    return permission_info
 
 
 @router.get("/can-create/club/{club_id}")
@@ -98,11 +89,9 @@ async def check_can_create_section_in_club(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user not found. Please register as staff first.",
-        )
+        raise NotFoundError("Staff user", "Please register as staff first")
 
+    # Все проверки происходят в CRUD
     check_result = await check_user_can_create_section_in_club(
         db, user_staff.id, club_id
     )
@@ -121,16 +110,11 @@ async def get_my_sections_stats(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user not found. Please register as staff first.",
-        )
+        raise NotFoundError("Staff user", "Please register as staff first")
 
-    try:
-        stats = await get_user_sections_stats(db, user_staff.id)
-        return stats
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    # Валидация и ошибки обрабатываются в CRUD
+    stats = await get_user_sections_stats(db, user_staff.id)
+    return stats
 
 
 @router.post("/", response_model=SectionRead, status_code=status.HTTP_201_CREATED)
@@ -163,34 +147,11 @@ async def create_new_section(
     # Get user from database to ensure they exist as staff
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user not found. Please register as staff first.",
-        )
+        raise NotFoundError("Staff user", "Please register as staff first")
 
-    try:
-        db_section = await create_section(db, section, user_staff.id)
-        return db_section
-    except ValueError as e:
-        error_message = str(e)
-        # Определяем тип ошибки для правильного HTTP кода
-        if any(
-            keyword in error_message.lower()
-            for keyword in ["limit", "maximum", "permission", "no permission"]
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail=error_message
-            )
-        elif "not found" in error_message.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=error_message
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=error_message
-            )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to create section")
+    # Все ошибки бизнес-логики обрабатываются в CRUD автоматически
+    db_section = await create_section(db, section, user_staff.id)
+    return db_section
 
 
 @router.get("/", response_model=List[SectionRead])
@@ -221,6 +182,7 @@ async def get_sections_list(
     """
     skip = (page - 1) * size
 
+    # Валидация параметров происходит в CRUD
     sections, total = await get_sections_paginated(
         db,
         skip=skip,
@@ -253,6 +215,7 @@ async def get_club_sections(
     - **limit**: Maximum number of sections to return
     - **active_only**: Show only active sections
     """
+    # Валидация происходит в CRUD
     sections = await get_sections_by_club(
         db, club_id, skip=skip, limit=limit, active_only=active_only
     )
@@ -275,6 +238,7 @@ async def get_coach_sections(
     - **skip**: Number of sections to skip (for pagination)
     - **limit**: Maximum number of sections to return
     """
+    # Валидация происходит в CRUD
     sections = await get_sections_by_coach(db, coach_id, skip=skip, limit=limit)
     return sections
 
@@ -291,7 +255,7 @@ async def get_my_sections(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
     sections = await get_sections_by_coach(db, user_staff.id)
     return sections
@@ -309,9 +273,8 @@ async def get_section(
 
     - **section_id**: Unique section identifier
     """
+    # Валидация и ошибки обрабатываются в CRUD
     section = await get_section_by_id(db, section_id)
-    if not section:
-        raise HTTPException(status_code=404, detail="Section not found")
     return section
 
 
@@ -332,19 +295,11 @@ async def update_section_details(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
-    try:
-        db_section = await update_section(db, section_id, section_update, user_staff.id)
-        if not db_section:
-            raise HTTPException(status_code=404, detail="Section not found")
-        return db_section
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to update section")
+    # Все проверки разрешений и ошибки обрабатываются в CRUD
+    db_section = await update_section(db, section_id, section_update, user_staff.id)
+    return db_section
 
 
 @router.delete("/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -364,16 +319,11 @@ async def delete_section_route(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
-    try:
-        deleted = await delete_section(db, section_id, user_staff.id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Section not found")
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to delete section")
+    # Все проверки разрешений и ошибки обрабатываются в CRUD
+    await delete_section(db, section_id, user_staff.id)
+    # FastAPI автоматически вернет 204 No Content
 
 
 @router.patch("/{section_id}/toggle-status", response_model=SectionRead)
@@ -393,17 +343,11 @@ async def toggle_section_status_route(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
-    try:
-        db_section = await toggle_section_status(db, section_id, user_staff.id)
-        if not db_section:
-            raise HTTPException(status_code=404, detail="Section not found")
-        return db_section
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to toggle section status")
+    # Все проверки разрешений и ошибки обрабатываются в CRUD
+    db_section = await toggle_section_status(db, section_id, user_staff.id)
+    return db_section
 
 
 @router.get("/{section_id}/stats")
@@ -420,7 +364,6 @@ async def get_section_stats(
 
     Returns basic statistics about the section.
     """
+    # Валидация и ошибки обрабатываются в CRUD
     stats = await get_section_statistics(db, section_id)
-    if not stats:
-        raise HTTPException(status_code=404, detail="Section not found")
     return stats

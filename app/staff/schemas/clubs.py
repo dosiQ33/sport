@@ -4,6 +4,8 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.exceptions import ValidationError
+
 
 class ClubBase(BaseModel):
     """Base club schema with common fields."""
@@ -44,11 +46,11 @@ class ClubBase(BaseModel):
     @classmethod
     def validate_name(cls, v):
         if not v or not v.strip():
-            raise ValueError("Club name cannot be empty")
+            raise ValidationError("Club name cannot be empty")
 
         # Allow letters, numbers, spaces, and basic punctuation
         if not re.match(r"^[a-zA-Zа-яА-Я0-9\s\-_.()]+$", v):
-            raise ValueError("Club name contains invalid characters")
+            raise ValidationError("Club name contains invalid characters")
 
         return v.strip()
 
@@ -59,7 +61,7 @@ class ClubBase(BaseModel):
             # Basic phone validation - remove spaces and check format
             clean_phone = re.sub(r"\s+", "", v)
             if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
-                raise ValueError("Invalid phone number format")
+                raise ValidationError("Invalid phone number format")
         return v
 
     @field_validator("telegram_url")
@@ -69,7 +71,7 @@ class ClubBase(BaseModel):
             if not (
                 v.startswith("https://t.me/") or v.startswith("https://telegram.me/")
             ):
-                raise ValueError(
+                raise ValidationError(
                     "Telegram URL must start with https://t.me/ or https://telegram.me/"
                 )
         return v
@@ -81,7 +83,7 @@ class ClubBase(BaseModel):
             if not v.startswith("https://instagram.com/") and not v.startswith(
                 "https://www.instagram.com/"
             ):
-                raise ValueError(
+                raise ValidationError(
                     "Instagram URL must start with https://instagram.com/ or https://www.instagram.com/"
                 )
         return v
@@ -119,9 +121,9 @@ class ClubUpdate(BaseModel):
     def validate_name(cls, v):
         if v is not None:
             if not v or not v.strip():
-                raise ValueError("Club name cannot be empty")
+                raise ValidationError("Club name cannot be empty")
             if not re.match(r"^[a-zA-Zа-яА-Я0-9\s\-_.()]+$", v):
-                raise ValueError("Club name contains invalid characters")
+                raise ValidationError("Club name contains invalid characters")
             return v.strip()
         return v
 
@@ -131,7 +133,7 @@ class ClubUpdate(BaseModel):
         if v:
             clean_phone = re.sub(r"\s+", "", v)
             if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
-                raise ValueError("Invalid phone number format")
+                raise ValidationError("Invalid phone number format")
         return v
 
     @field_validator("telegram_url")
@@ -141,7 +143,7 @@ class ClubUpdate(BaseModel):
             if not (
                 v.startswith("https://t.me/") or v.startswith("https://telegram.me/")
             ):
-                raise ValueError(
+                raise ValidationError(
                     "Telegram URL must start with https://t.me/ or https://telegram.me/"
                 )
         return v
@@ -153,7 +155,7 @@ class ClubUpdate(BaseModel):
             if not v.startswith("https://instagram.com/") and not v.startswith(
                 "https://www.instagram.com/"
             ):
-                raise ValueError(
+                raise ValidationError(
                     "Instagram URL must start with https://instagram.com/ or https://www.instagram.com/"
                 )
         return v

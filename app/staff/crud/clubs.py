@@ -3,6 +3,16 @@ from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from app.core.database import db_operation, with_db_transaction
+from app.core.exceptions import (
+    NotFoundError,
+    DuplicateError,
+    LimitExceededError,
+    PermissionDeniedError,
+    ValidationError,
+    DatabaseError,
+)
 from app.staff.models.clubs import Club
 from app.staff.models.users import UserStaff
 from app.staff.models.roles import Role, RoleType
@@ -10,22 +20,39 @@ from app.staff.models.user_roles import UserRole
 from app.staff.schemas.clubs import ClubCreate, ClubUpdate
 
 
+@db_operation
 async def get_club_by_id(session: AsyncSession, club_id: int):
     """Get club by ID with owner information"""
+    if club_id <= 0:
+        raise ValidationError("Club ID must be positive")
+
     result = await session.execute(
         select(Club).options(selectinload(Club.owner)).where(Club.id == club_id)
     )
-    return result.scalar_one_or_none()
+    club = result.scalar_one_or_none()
+
+    if not club:
+        raise NotFoundError("Club", str(club_id))
+
+    return club
 
 
+@db_operation
 async def get_club_by_name(session: AsyncSession, name: str):
     """Get club by name"""
-    result = await session.execute(select(Club).where(Club.name == name))
+    if not name or not name.strip():
+        raise ValidationError("Club name cannot be empty")
+
+    result = await session.execute(select(Club).where(Club.name == name.strip()))
     return result.scalar_one_or_none()
 
 
+@db_operation
 async def get_clubs_by_owner(session: AsyncSession, owner_id: int):
     """Get all clubs owned by a specific user"""
+    if owner_id <= 0:
+        raise ValidationError("Owner ID must be positive")
+
     result = await session.execute(
         select(Club)
         .options(selectinload(Club.owner))
@@ -35,6 +62,7 @@ async def get_clubs_by_owner(session: AsyncSession, owner_id: int):
     return result.scalars().all()
 
 
+@db_operation
 async def get_clubs_paginated(
     session: AsyncSession,
     skip: int = 0,
@@ -43,16 +71,22 @@ async def get_clubs_paginated(
     name: Optional[str] = None,
 ):
     """Get paginated list of clubs with optional filters"""
+    if skip < 0:
+        raise ValidationError("Skip parameter must be >= 0")
+
+    if limit <= 0 or limit > 100:
+        raise ValidationError("Limit must be between 1 and 100")
+
     base_query = select(Club).options(selectinload(Club.owner))
     count_query = select(func.count(Club.id))
 
     conditions = []
 
     if city:
-        conditions.append(Club.city.ilike(f"%{city}%"))
+        conditions.append(Club.city.ilike(f"%{city.strip()}%"))
 
     if name:
-        conditions.append(Club.name.ilike(f"%{name}%"))
+        conditions.append(Club.name.ilike(f"%{name.strip()}%"))
 
     if conditions:
         filter_condition = and_(*conditions)
@@ -73,23 +107,34 @@ async def get_clubs_paginated(
 
 async def create_club(session: AsyncSession, club: ClubCreate, owner_id: int) -> Club:
     """Create a new club with limits check and owner role assignment"""
+    if owner_id <= 0:
+        raise ValidationError("Owner ID must be positive")
 
-    try:
+    async def _create_club_operation(session: AsyncSession):
         # 1. Проверяем лимиты пользователя
         limits_check = await check_user_clubs_limit_before_create(session, owner_id)
 
         if not limits_check["can_create"]:
-            raise ValueError(
-                f"User has reached the maximum limit of {limits_check['max_clubs']} clubs. "
-                f"Current clubs: {limits_check['current_clubs']}. Contact administrator to increase limits."
+            raise LimitExceededError(
+                "clubs", limits_check["max_clubs"], limits_check["current_clubs"]
             )
 
         # 2. Проверяем уникальность имени клуба
-        existing_club = await get_club_by_name(session, club.name)
-        if existing_club:
-            raise ValueError(f"Club with name '{club.name}' already exists")
+        existing_club = await session.execute(
+            select(Club).where(Club.name == club.name.strip())
+        )
+        if existing_club.scalar_one_or_none():
+            raise DuplicateError("Club", "name", club.name)
 
-        # 3. Создаем клуб
+        # 3. Проверяем существование владельца
+        owner_result = await session.execute(
+            select(UserStaff).where(UserStaff.id == owner_id)
+        )
+        owner = owner_result.scalar_one_or_none()
+        if not owner:
+            raise NotFoundError("User", str(owner_id))
+
+        # 4. Создаем клуб
         club_data = club.model_dump()
         club_data["owner_id"] = owner_id
 
@@ -97,12 +142,15 @@ async def create_club(session: AsyncSession, club: ClubCreate, owner_id: int) ->
         session.add(db_club)
         await session.flush()  # Получаем ID клуба
 
-        # 4. Создаем owner роль для пользователя в этом клубе
+        # 5. Создаем owner роль для пользователя в этом клубе
         # Получаем роль owner
         owner_role_result = await session.execute(
             select(Role).where(Role.code == RoleType.owner)
         )
-        owner_role = owner_role_result.scalar_one()
+        owner_role = owner_role_result.scalar_one_or_none()
+
+        if not owner_role:
+            raise DatabaseError("Owner role not found in database")
 
         # Создаем запись в user_roles
         user_role = UserRole(
@@ -113,85 +161,101 @@ async def create_club(session: AsyncSession, club: ClubCreate, owner_id: int) ->
         )
         session.add(user_role)
 
-        # 5. Применяем все изменения
-        await session.commit()
-        await session.refresh(db_club, ["owner"])
-
         return db_club
 
-    except Exception as e:
-        await session.rollback()
-        raise
+    # Выполняем операцию в транзакции с retry
+    db_club = await with_db_transaction(session, _create_club_operation)
+
+    # Загружаем связанные данные
+    await session.refresh(db_club, ["owner"])
+    return db_club
 
 
+@db_operation
 async def update_club(
     session: AsyncSession,
     club_id: int,
     club_update: ClubUpdate,
     owner_id: Optional[int] = None,
-) -> Optional[Club]:
+) -> Club:
     """Update an existing club"""
+    if club_id <= 0:
+        raise ValidationError("Club ID must be positive")
 
-    try:
-        db_club = await get_club_by_id(session, club_id)
-        if not db_club:
-            return None
+    # Получаем клуб
+    club_result = await session.execute(
+        select(Club).options(selectinload(Club.owner)).where(Club.id == club_id)
+    )
+    db_club = club_result.scalar_one_or_none()
 
-        # If owner_id is provided, verify ownership
-        if owner_id and db_club.owner_id != owner_id:
-            raise PermissionError("You can only update clubs you own")
+    if not db_club:
+        raise NotFoundError("Club", str(club_id))
 
-        # Check if new name conflicts with existing clubs
-        update_data = club_update.model_dump(exclude_unset=True)
-        if "name" in update_data and update_data["name"] != db_club.name:
-            existing_club = await get_club_by_name(session, update_data["name"])
-            if existing_club:
-                raise ValueError(
-                    f"Club with name '{update_data['name']}' already exists"
-                )
+    # If owner_id is provided, verify ownership
+    if owner_id and db_club.owner_id != owner_id:
+        raise PermissionDeniedError(
+            "update", "club", "You can only update clubs you own"
+        )
 
-        for key, value in update_data.items():
-            setattr(db_club, key, value)
+    # Check if new name conflicts with existing clubs
+    update_data = club_update.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] != db_club.name:
+        existing_club_result = await session.execute(
+            select(Club).where(Club.name == update_data["name"].strip())
+        )
+        existing_club = existing_club_result.scalar_one_or_none()
+        if existing_club:
+            raise DuplicateError("Club", "name", update_data["name"])
 
-        await session.commit()
-        await session.refresh(db_club, ["owner"])
+    # Применяем изменения
+    for key, value in update_data.items():
+        setattr(db_club, key, value)
 
-        return db_club
+    await session.commit()
+    await session.refresh(db_club, ["owner"])
 
-    except Exception as e:
-        await session.rollback()
-        raise
+    return db_club
 
 
+@db_operation
 async def delete_club(
     session: AsyncSession, club_id: int, owner_id: Optional[int] = None
 ) -> bool:
     """Delete a club (hard delete with cascading)"""
+    if club_id <= 0:
+        raise ValidationError("Club ID must be positive")
 
-    try:
-        db_club = await get_club_by_id(session, club_id)
-        if not db_club:
-            return False
+    # Получаем клуб
+    club_result = await session.execute(select(Club).where(Club.id == club_id))
+    db_club = club_result.scalar_one_or_none()
 
-        # If owner_id is provided, verify ownership
-        if owner_id and db_club.owner_id != owner_id:
-            raise PermissionError("You can only delete clubs you own")
+    if not db_club:
+        raise NotFoundError("Club", str(club_id))
 
-        # Удаляем клуб (связанные записи удалятся автоматически из-за cascade)
-        await session.delete(db_club)
-        await session.commit()
+    # If owner_id is provided, verify ownership
+    if owner_id and db_club.owner_id != owner_id:
+        raise PermissionDeniedError(
+            "delete", "club", "You can only delete clubs you own"
+        )
 
-        return True
+    # Удаляем клуб (связанные записи удалятся автоматически из-за cascade)
+    await session.delete(db_club)
+    await session.commit()
 
-    except Exception as e:
-        await session.rollback()
-        raise
+    return True
 
 
+@db_operation
 async def check_user_club_permission(
     session: AsyncSession, user_id: int, club_id: int
 ) -> bool:
     """Check if user has permission to manage a club (is owner or has admin role)"""
+    if user_id <= 0:
+        raise ValidationError("User ID must be positive")
+
+    if club_id <= 0:
+        raise ValidationError("Club ID must be positive")
+
     # Check if user is owner
     club_result = await session.execute(
         select(Club).where(and_(Club.id == club_id, Club.owner_id == user_id))
@@ -219,8 +283,12 @@ async def check_user_club_permission(
     return user_role is not None
 
 
+@db_operation
 async def get_user_clubs_with_roles(session: AsyncSession, user_id: int):
     """Get all clubs where user has any role"""
+    if user_id <= 0:
+        raise ValidationError("User ID must be positive")
+
     result = await session.execute(
         select(Club, Role.code)
         .join(UserRole, Club.id == UserRole.club_id)
@@ -248,6 +316,7 @@ async def get_user_clubs_with_roles(session: AsyncSession, user_id: int):
     return clubs_with_roles
 
 
+@db_operation
 async def check_user_clubs_limit_before_create(
     session: AsyncSession, user_id: int
 ) -> dict:
@@ -255,13 +324,16 @@ async def check_user_clubs_limit_before_create(
     Проверить лимиты пользователя перед созданием клуба
     Возвращает информацию о возможности создания
     """
+    if user_id <= 0:
+        raise ValidationError("User ID must be positive")
+
     # Получаем пользователя
     user_result = await session.execute(
         select(UserStaff).where(UserStaff.id == user_id)
     )
     user = user_result.scalar_one_or_none()
     if not user:
-        raise ValueError(f"User with ID {user_id} not found")
+        raise NotFoundError("User", str(user_id))
 
     # Получаем текущее количество клубов
     current_clubs_result = await session.execute(

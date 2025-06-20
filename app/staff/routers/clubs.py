@@ -1,11 +1,12 @@
 import math
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
+from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional, List
 
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
+from app.core.exceptions import NotFoundError, PermissionDeniedError
 from app.staff.schemas.clubs import ClubCreate, ClubUpdate, ClubRead, ClubListResponse
 from app.staff.crud.users import get_user_staff_by_telegram_id
 from app.staff.crud.clubs import (
@@ -37,16 +38,10 @@ async def check_club_creation_limits(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user not found. Please register as staff first.",
-        )
+        raise NotFoundError("Staff user", "Please register as staff first")
 
-    try:
-        limits_info = await check_user_clubs_limit_before_create(db, user_staff.id)
-        return limits_info
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    limits_info = await check_user_clubs_limit_before_create(db, user_staff.id)
+    return limits_info
 
 
 @router.post("/", response_model=ClubRead, status_code=status.HTTP_201_CREATED)
@@ -78,25 +73,12 @@ async def create_new_club(
     # Get user from database to ensure they exist as staff
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(
-            status_code=404,
-            detail="Staff user not found. Please register as staff first.",
-        )
+        raise NotFoundError("Staff user", "Please register as staff first")
 
-    try:
-        db_club = await create_club(db, club, user_staff.id)
-        return db_club
-    except ValueError as e:
-        # Проверяем, связана ли ошибка с лимитами
-        error_message = str(e)
-        if "limit" in error_message.lower() or "maximum" in error_message.lower():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail=error_message
-            )
-        else:
-            raise HTTPException(status_code=400, detail=error_message)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to create club")
+    # Все ошибки бизнес-логики теперь выбрасываются из CRUD и
+    # автоматически обрабатываются централизованными handlers
+    db_club = await create_club(db, club, user_staff.id)
+    return db_club
 
 
 @router.get("/", response_model=ClubListResponse)
@@ -155,7 +137,7 @@ async def get_my_clubs(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
     clubs = await get_clubs_by_owner(db, user_staff.id)
     return clubs
@@ -175,7 +157,7 @@ async def get_my_clubs_with_roles(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
     clubs_with_roles = await get_user_clubs_with_roles(db, user_staff.id)
     return {
@@ -197,9 +179,8 @@ async def get_club(
 
     - **club_id**: Unique club identifier
     """
+    # Валидация параметров теперь в CRUD
     club = await get_club_by_id(db, club_id)
-    if not club:
-        raise HTTPException(status_code=404, detail="Club not found")
     return club
 
 
@@ -220,26 +201,16 @@ async def update_club_details(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
     # Check if user has permission to update this club
     has_permission = await check_user_club_permission(db, user_staff.id, club_id)
     if not has_permission:
-        raise HTTPException(
-            status_code=403, detail="You don't have permission to update this club"
-        )
+        raise PermissionDeniedError("update", "club")
 
-    try:
-        db_club = await update_club(db, club_id, club_update, user_staff.id)
-        if not db_club:
-            raise HTTPException(status_code=404, detail="Club not found")
-        return db_club
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to update club")
+    # Все ошибки бизнес-логики обрабатываются в CRUD
+    db_club = await update_club(db, club_id, club_update, user_staff.id)
+    return db_club
 
 
 @router.delete("/{club_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -259,16 +230,11 @@ async def delete_club_route(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
-    try:
-        deleted = await delete_club(db, club_id, user_staff.id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Club not found")
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to delete club")
+    # Все проверки разрешений и ошибки теперь в CRUD
+    await delete_club(db, club_id, user_staff.id)
+    # FastAPI автоматически вернет 204 No Content
 
 
 @router.get("/{club_id}/check-permission")
@@ -286,11 +252,11 @@ async def check_club_permission(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
-    club = await get_club_by_id(db, club_id)
-    if not club:
-        raise HTTPException(status_code=404, detail="Club not found")
+    club = await get_club_by_id(
+        db, club_id
+    )  # Это уже выбросит NotFoundError если не найден
 
     has_permission = await check_user_club_permission(db, user_staff.id, club_id)
     is_owner = club.owner_id == user_staff.id

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
+from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional
 
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_user
+from app.core.exceptions import NotFoundError, PermissionDeniedError
 from app.staff.schemas.invitations import (
     InvitationCreateByOwner,
     InvitationRead,
@@ -43,17 +44,13 @@ async def create_club_staff_invitation(
     # Получаем пользователя
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
-    try:
-        db_invitation = await create_invitation_by_owner(
-            db, invitation, user_staff.id, club_id
-        )
-        return db_invitation
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    # Все проверки прав и ошибки обрабатываются в CRUD
+    db_invitation = await create_invitation_by_owner(
+        db, invitation, user_staff.id, club_id
+    )
+    return db_invitation
 
 
 @router.get("/my", response_model=InvitationListResponse)
@@ -71,9 +68,11 @@ async def get_my_invitations(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
     skip = (page - 1) * size
+
+    # Валидация параметров происходит в CRUD
     invitations, total = await get_invitations_paginated(
         db, skip=skip, limit=size, created_by_id=user_staff.id, is_used=is_used
     )
@@ -102,16 +101,18 @@ async def get_club_invitations(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
     # Проверяем права доступа
     from app.staff.crud.clubs import check_user_club_permission
 
     has_permission = await check_user_club_permission(db, user_staff.id, club_id)
     if not has_permission:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise PermissionDeniedError("view", "club invitations")
 
     skip = (page - 1) * size
+
+    # Валидация параметров происходит в CRUD
     invitations, total = await get_invitations_paginated(
         db, skip=skip, limit=size, club_id=club_id, is_used=is_used
     )
@@ -134,14 +135,13 @@ async def get_invitation(
     """
     Получить информацию о приглашении по ID.
     """
+    # Получаем приглашение (с проверкой существования)
     invitation = await get_invitation_by_id(db, invitation_id)
-    if not invitation:
-        raise HTTPException(status_code=404, detail="Invitation not found")
 
     # Проверяем права доступа
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
     # Можно видеть только свои приглашения или если есть права на клуб
     if invitation.created_by_id != user_staff.id:
@@ -152,9 +152,9 @@ async def get_invitation(
                 db, user_staff.id, invitation.club_id
             )
             if not has_permission:
-                raise HTTPException(status_code=403, detail="Access denied")
+                raise PermissionDeniedError("view", "invitation")
         else:
-            raise HTTPException(status_code=403, detail="Access denied")
+            raise PermissionDeniedError("view", "invitation")
 
     return invitation
 
@@ -173,16 +173,11 @@ async def delete_invitation_route(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
-    try:
-        deleted = await delete_invitation(db, invitation_id, user_staff.id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Invitation not found")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    # Все проверки прав и ошибки обрабатываются в CRUD
+    await delete_invitation(db, invitation_id, user_staff.id)
+    # FastAPI автоматически вернет 204 No Content
 
 
 @router.get("/stats/my")
@@ -197,7 +192,8 @@ async def get_my_invitation_stats(
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
-        raise HTTPException(status_code=404, detail="Staff user not found")
+        raise NotFoundError("Staff user")
 
+    # Валидация происходит в CRUD
     stats = await get_invitation_stats(db, created_by_id=user_staff.id)
     return stats

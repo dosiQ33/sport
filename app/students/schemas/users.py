@@ -3,6 +3,8 @@ import re
 from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
+from app.core.exceptions import ValidationError
+
 
 class UserStudentPreferences(BaseModel):
     language: Optional[str] = Field("ru", pattern=r"^[a-z]{2}$")
@@ -13,7 +15,7 @@ class UserStudentPreferences(BaseModel):
     @classmethod
     def validate_language(cls, v):
         if v and v not in ["ru", "en", "kz", "uz", "ky"]:
-            raise ValueError("Unsupported language code")
+            raise ValidationError("Unsupported language code")
         return v
 
 
@@ -35,7 +37,7 @@ class UserStudentBase(BaseModel):
     def validate_username(cls, v):
         if v:
             if not re.match(r"^[a-zA-Z0-9_]{5,32}$", v):
-                raise ValueError(
+                raise ValidationError(
                     "Username must be 5-32 characters, alphanumeric and underscore only"
                 )
         return v
@@ -59,7 +61,7 @@ class UserStudentUpdate(BaseModel):
     def validate_username(cls, v):
         if v:
             if not re.match(r"^[a-zA-Z0-9_]{5,32}$", v):
-                raise ValueError(
+                raise ValidationError(
                     "Username must be 5-32 characters, alphanumeric and underscore only"
                 )
         return v
@@ -99,5 +101,5 @@ class PreferencesUpdate(BaseModel):
     @classmethod
     def validate_language(cls, v):
         if v and v not in ["ru", "en", "kz", "uz", "ky"]:
-            raise ValueError("Unsupported language code")
+            raise ValidationError("Unsupported language code")
         return v
