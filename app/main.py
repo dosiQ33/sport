@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from slowapi.errors import RateLimitExceeded
 
@@ -105,6 +106,22 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=lifespan,
     debug=DEBUG,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://training-tracker-mini-app.vercel.app",
+        "https://web.telegram.org",
+        "https://k.web.telegram.org",
+        "https://z.web.telegram.org",
+        "https://a.web.telegram.org",
+        "http://localhost:3000",
+        "http://localhost:8080",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Настройка обработчиков ошибок (до добавления middleware и роутеров)
