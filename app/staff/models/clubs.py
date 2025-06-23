@@ -30,8 +30,6 @@ class Club(Base):
 
     owner_id = Column(Integer, ForeignKey("user_staff.id"), nullable=True)
 
-    extra = Column(JSON, nullable=True, default={})
-
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

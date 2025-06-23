@@ -1,6 +1,7 @@
 import time
 import logging
 import uuid
+import os
 from typing import Callable
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -134,21 +135,40 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         response = await call_next(request)
 
+        # Проверяем режим разработки
+        is_development = os.getenv("ENVIRONMENT", "production").lower() in [
+            "development",
+            "dev",
+        ]
+
         # Добавляем security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # Content Security Policy (базовый)
-        csp = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; "
-            "font-src 'self'; "
-            "connect-src 'self'"
-        )
+        # Content Security Policy - более мягкий для development
+        if is_development:
+            # Разрешаем загрузку ресурсов Swagger UI в development
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https: https://fastapi.tiangolo.com; "
+                "font-src 'self' https://cdn.jsdelivr.net; "
+                "connect-src 'self'"
+            )
+        else:
+            # Строгий CSP для production
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: https:; "
+                "font-src 'self'; "
+                "connect-src 'self'"
+            )
+
         response.headers["Content-Security-Policy"] = csp
 
         return response

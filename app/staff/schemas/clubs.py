@@ -36,10 +36,6 @@ class ClubBase(BaseModel):
         None, max_length=255, description="Instagram profile URL"
     )
 
-    extra: dict[str, Any] = Field(
-        default_factory=dict, description="Additional club metadata"
-    )
-
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
 
     @field_validator("name")
@@ -110,8 +106,6 @@ class ClubUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=32)
     telegram_url: Optional[str] = Field(None, max_length=255)
     instagram_url: Optional[str] = Field(None, max_length=255)
-
-    extra: Optional[dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
 
