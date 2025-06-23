@@ -147,9 +147,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # Content Security Policy - более мягкий для development
-        if is_development:
-            # Разрешаем загрузку ресурсов Swagger UI в development
+        # Специальная обработка для Swagger UI endpoints
+        swagger_paths = ["/docs", "/redoc", "/openapi.json"]
+        is_swagger_endpoint = any(
+            request.url.path.startswith(path) for path in swagger_paths
+        )
+
+        if is_swagger_endpoint:
+            # Мягкий CSP для Swagger UI (работает и в dev, и в prod)
             csp = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
@@ -158,8 +163,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "font-src 'self' https://cdn.jsdelivr.net; "
                 "connect-src 'self'"
             )
-        else:
-            # Строгий CSP для production
+        elif is_development:
+            # Development: более мягкие правила
             csp = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline'; "
@@ -168,9 +173,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "font-src 'self'; "
                 "connect-src 'self'"
             )
+        else:
+            # Production: строгий CSP для обычных страниц
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self'; "
+                "img-src 'self' data:; "
+                "font-src 'self'; "
+                "connect-src 'self'; "
+                "object-src 'none'; "
+                "base-uri 'self'"
+            )
 
         response.headers["Content-Security-Policy"] = csp
-
         return response
 
 
