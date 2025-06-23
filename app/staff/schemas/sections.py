@@ -17,7 +17,6 @@ class SectionBase(BaseModel):
     level: Optional[SectionLevel] = Field(None, description="Skill level")
     capacity: Optional[int] = Field(None, ge=1, le=1000, description="Maximum capacity")
     price: Optional[Decimal] = Field(None, ge=0, description="Base price")
-    duration_min: int = Field(60, ge=15, le=480, description="Duration in minutes")
 
     coach_id: Optional[int] = Field(None, gt=0, description="Coach ID")
     tags: list[str] = Field(default_factory=list, description="Section tags")
@@ -59,7 +58,6 @@ class SectionUpdate(BaseModel):
     level: Optional[SectionLevel] = None
     capacity: Optional[int] = Field(None, ge=1, le=1000)
     price: Optional[Decimal] = Field(None, ge=0)
-    duration_min: Optional[int] = Field(None, ge=15, le=480)
     coach_id: Optional[int] = Field(None, gt=0)
     tags: Optional[list[str]] = None
     schedule: Optional[dict[str, Any]] = None
@@ -145,7 +143,6 @@ class SectionStats(BaseModel):
     enrolled_students: int = 0
     available_spots: Optional[int] = None
     price: Optional[Decimal] = None
-    duration_min: int = 60
 
     model_config = ConfigDict(from_attributes=True)
 

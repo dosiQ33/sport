@@ -32,7 +32,6 @@ class Section(Base):
     level = Column(String(20), nullable=True)
     capacity = Column(Integer, nullable=True)
     price = Column(Numeric(10, 2), nullable=True)
-    duration_min = Column(Integer, nullable=True, server_default=text("60"))
 
     coach_id = Column(Integer, ForeignKey("user_staff.id"), nullable=True)
 

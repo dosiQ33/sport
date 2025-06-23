@@ -138,7 +138,6 @@ async def create_new_section(
     - **level**: Skill level (beginner, intermediate, advanced, pro)
     - **capacity**: Maximum number of students (optional)
     - **price**: Base price for the section (optional)
-    - **duration_min**: Duration in minutes (default: 60)
     - **coach_id**: ID of the coach assigned to this section (optional)
     - **tags**: List of tags (e.g., ["boxing", "kids"])
     - **schedule**: JSON object with schedule information

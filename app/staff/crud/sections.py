@@ -542,7 +542,6 @@ async def get_section_statistics(session: AsyncSession, section_id: int):
         "level": section.level,
         "active": section.active,
         "price": section.price,
-        "duration_min": section.duration_min,
         # Add more stats here when you implement student enrollment
         "enrolled_students": 0,  # Placeholder
         "available_spots": section.capacity if section.capacity else None,
