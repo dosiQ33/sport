@@ -36,6 +36,7 @@ from app.staff.routers import sections as staff_sections
 from app.staff.routers import superadmin
 from app.staff.routers import invitations
 from app.students.routers import users as student_users
+from app.staff.routers import team as staff_team
 
 # Настройка системы логирования
 setup_logging(LOG_LEVEL, LOG_FORMAT)
@@ -155,6 +156,7 @@ app.include_router(staff_sections.router, prefix="/api/v1")
 app.include_router(invitations.router, prefix="/api/v1")
 app.include_router(student_users.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
+app.include_router(staff_team.router, prefix="/api/v1")
 
 
 @app.get("/")

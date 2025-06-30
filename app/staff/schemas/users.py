@@ -63,7 +63,6 @@ class UserStaffCreate(BaseModel):
 class UserStaffUpdate(BaseModel):
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, max_length=50)
-    phone_number: Optional[str] = Field(None, min_length=10, max_length=30)
     username: Optional[str] = Field(None, max_length=64)
 
     @field_validator("username")

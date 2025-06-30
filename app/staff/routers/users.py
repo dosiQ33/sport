@@ -144,7 +144,7 @@ async def get_users_staff_list(
     )
 
 
-@router.put("/", response_model=UserStaffRead)
+@router.put("/me", response_model=UserStaffRead)
 @limiter.limit("10/minute")
 async def update_user_staff_by_telegram_id(
     request: Request,
