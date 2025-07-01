@@ -3,6 +3,7 @@ from .users import UserStaff
 from .roles import Role
 from .clubs import Club
 from .sections import Section
+from .groups import Group
 from .user_roles import UserRole
 from .invitations import Invitation
 
@@ -12,6 +13,7 @@ __all__ = [
     "Role",
     "Club",
     "Section",
+    "Group",
     "UserRole",
     "Invitation",
 ]

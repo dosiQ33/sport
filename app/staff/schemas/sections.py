@@ -1,29 +1,20 @@
 from datetime import datetime
-from typing import Any, Literal, Optional
-from decimal import Decimal
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.exceptions import ValidationError
 
 
-SectionLevel = Literal["beginner", "intermediate", "advanced", "pro"]
-
-
 class SectionBase(BaseModel):
     club_id: int = Field(..., gt=0, description="Club ID must be positive")
     name: str = Field(..., min_length=1, max_length=100, description="Section name")
+    description: Optional[str] = Field(
+        None, max_length=1000, description="Section description"
+    )
 
-    level: Optional[SectionLevel] = Field(None, description="Skill level")
-    capacity: Optional[int] = Field(None, ge=1, le=1000, description="Maximum capacity")
-    price: Optional[Decimal] = Field(None, ge=0, description="Base price")
-
-    coach_id: Optional[int] = Field(None, gt=0, description="Coach ID")
-    tags: list[str] = Field(default_factory=list, description="Section tags")
-
-    # JSON with schedule information
-    schedule: dict[str, Any] = Field(default_factory=dict, description="Schedule data")
-
+    # Главный тренер секции (координатор)
+    coach_id: Optional[int] = Field(None, gt=0, description="Main coach ID")
     active: bool = Field(True, description="Whether section is active")
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
@@ -34,15 +25,6 @@ class SectionBase(BaseModel):
         if not v or not v.strip():
             raise ValidationError("Section name cannot be empty")
         return v.strip()
-
-    @field_validator("tags")
-    @classmethod
-    def validate_tags(cls, v):
-        if v:
-            # Remove duplicates and empty strings
-            clean_tags = list(set(tag.strip().lower() for tag in v if tag.strip()))
-            return clean_tags
-        return v
 
 
 class SectionCreate(SectionBase):
@@ -55,12 +37,8 @@ class SectionUpdate(BaseModel):
     """Schema for updating section - all fields optional"""
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    level: Optional[SectionLevel] = None
-    capacity: Optional[int] = Field(None, ge=1, le=1000)
-    price: Optional[Decimal] = Field(None, ge=0)
+    description: Optional[str] = Field(None, max_length=1000)
     coach_id: Optional[int] = Field(None, gt=0)
-    tags: Optional[list[str]] = None
-    schedule: Optional[dict[str, Any]] = None
     active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
@@ -72,15 +50,6 @@ class SectionUpdate(BaseModel):
             if not v or not v.strip():
                 raise ValidationError("Section name cannot be empty")
             return v.strip()
-        return v
-
-    @field_validator("tags")
-    @classmethod
-    def validate_tags(cls, v):
-        if v is not None:
-            # Remove duplicates and empty strings
-            clean_tags = list(set(tag.strip().lower() for tag in v if tag.strip()))
-            return clean_tags
         return v
 
 
@@ -106,12 +75,29 @@ class CoachInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GroupInfo(BaseModel):
+    """Basic group information for section response"""
+
+    id: int
+    name: str
+    level: Optional[str] = None
+    capacity: Optional[int] = None
+    price: Optional[str] = None  # Decimal as string for JSON
+    active: bool
+    enrolled_students: int = 0  # Будет реализовано позже
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SectionRead(SectionBase):
     """Schema for section response with additional metadata"""
 
     id: int
     club: Optional[ClubInfo] = None
     coach: Optional[CoachInfo] = None
+    groups: list[GroupInfo] = Field(
+        default_factory=list, description="Groups in this section"
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -137,12 +123,12 @@ class SectionStats(BaseModel):
     id: int
     name: str
     coach_name: Optional[str] = None
-    capacity: Optional[int] = None
-    level: Optional[str] = None
-    active: bool
-    enrolled_students: int = 0
+    total_groups: int = 0
+    active_groups: int = 0
+    total_capacity: Optional[int] = None
+    enrolled_students: int = 0  # Будет реализовано позже
     available_spots: Optional[int] = None
-    price: Optional[Decimal] = None
+    active: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -152,7 +138,6 @@ class SectionFilters(BaseModel):
 
     club_id: Optional[int] = Field(None, gt=0)
     coach_id: Optional[int] = Field(None, gt=0)
-    level: Optional[SectionLevel] = None
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     active_only: bool = True
 

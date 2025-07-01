@@ -135,13 +135,12 @@ async def create_new_section(
 
     - **club_id**: ID of the club where section will be created
     - **name**: Section name (required, must be unique within club)
-    - **level**: Skill level (beginner, intermediate, advanced, pro)
-    - **capacity**: Maximum number of students (optional)
-    - **price**: Base price for the section (optional)
-    - **coach_id**: ID of the coach assigned to this section (optional)
-    - **tags**: List of tags (e.g., ["boxing", "kids"])
-    - **schedule**: JSON object with schedule information
+    - **description**: Section description (optional)
+    - **coach_id**: ID of the main coach for this section (optional)
     - **active**: Whether section is active (default: true)
+
+    Note: Schedule, price, capacity, and level are now managed at the group level.
+    Create groups within this section to set specific parameters.
     """
     # Get user from database to ensure they exist as staff
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
@@ -175,7 +174,7 @@ async def get_sections_list(
     - **size**: Number of sections per page (max 100)
     - **club_id**: Filter by specific club
     - **coach_id**: Filter by specific coach
-    - **level**: Filter by skill level (beginner, intermediate, advanced, pro)
+    - **level**: Filter by skill level
     - **name**: Filter by section name (partial match)
     - **active_only**: Show only active sections (default: true)
     """

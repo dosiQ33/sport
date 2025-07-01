@@ -33,10 +33,11 @@ from app.core.exceptions import (
 from app.staff.routers import users as staff_users
 from app.staff.routers import clubs as staff_clubs
 from app.staff.routers import sections as staff_sections
+from app.staff.routers import groups as staff_groups
 from app.staff.routers import superadmin
 from app.staff.routers import invitations
-from app.students.routers import users as student_users
 from app.staff.routers import team as staff_team
+from app.students.routers import users as student_users
 
 # Настройка системы логирования
 setup_logging(LOG_LEVEL, LOG_FORMAT)
@@ -153,6 +154,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.include_router(staff_users.router, prefix="/api/v1")
 app.include_router(staff_clubs.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
+app.include_router(staff_groups.router, prefix="/api/v1")  # ← НОВЫЙ РОУТЕР
 app.include_router(invitations.router, prefix="/api/v1")
 app.include_router(student_users.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
@@ -174,6 +176,8 @@ async def root():
             "Database retry mechanism",
             "Rate limiting",
             "Telegram authentication",
+            "Team management",
+            "Groups management",  # ← НОВАЯ ФИЧА
         ],
     }
 

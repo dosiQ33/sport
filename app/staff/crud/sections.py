@@ -14,6 +14,7 @@ from app.core.exceptions import (
 )
 from app.staff.models.roles import Role, RoleType
 from app.staff.models.sections import Section
+from app.staff.models.groups import Group
 from app.staff.models.clubs import Club
 from app.staff.models.user_roles import UserRole
 from app.staff.models.users import UserStaff
@@ -22,13 +23,17 @@ from app.staff.schemas.sections import SectionCreate, SectionUpdate
 
 @db_operation
 async def get_section_by_id(session: AsyncSession, section_id: int):
-    """Get section by ID with club and coach information"""
+    """Get section by ID with club, coach, and groups information"""
     if not section_id or section_id <= 0:
         raise ValidationError("Section ID must be positive")
 
     result = await session.execute(
         select(Section)
-        .options(selectinload(Section.club), selectinload(Section.coach))
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+        )
         .where(Section.id == section_id)
     )
     section = result.scalar_one_or_none()
@@ -59,7 +64,11 @@ async def get_sections_by_club(
 
     base_query = (
         select(Section)
-        .options(selectinload(Section.club), selectinload(Section.coach))
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+        )
         .where(Section.club_id == club_id)
     )
 
@@ -87,7 +96,11 @@ async def get_sections_by_coach(
 
     query = (
         select(Section)
-        .options(selectinload(Section.club), selectinload(Section.coach))
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+        )
         .where(Section.coach_id == coach_id)
         .offset(skip)
         .limit(limit)
@@ -104,7 +117,6 @@ async def get_sections_paginated(
     limit: int = 10,
     club_id: Optional[int] = None,
     coach_id: Optional[int] = None,
-    level: Optional[str] = None,
     active_only: bool = True,
     name: Optional[str] = None,
 ):
@@ -116,7 +128,9 @@ async def get_sections_paginated(
         raise ValidationError("Limit must be between 1 and 100")
 
     base_query = select(Section).options(
-        selectinload(Section.club), selectinload(Section.coach)
+        selectinload(Section.club),
+        selectinload(Section.coach),
+        selectinload(Section.groups),
     )
     count_query = select(func.count(Section.id))
 
@@ -131,9 +145,6 @@ async def get_sections_paginated(
         if coach_id <= 0:
             raise ValidationError("Coach ID must be positive")
         conditions.append(Section.coach_id == coach_id)
-
-    if level:
-        conditions.append(Section.level == level.strip())
 
     if name:
         conditions.append(Section.name.ilike(f"%{name.strip()}%"))
@@ -411,7 +422,7 @@ async def create_section(
     db_section = await with_db_transaction(session, _create_section_operation)
 
     # Загружаем связанные данные
-    await session.refresh(db_section, ["club", "coach"])
+    await session.refresh(db_section, ["club", "coach", "groups"])
     return db_section
 
 
@@ -432,7 +443,11 @@ async def update_section(
     # Получаем секцию
     section_result = await session.execute(
         select(Section)
-        .options(selectinload(Section.club), selectinload(Section.coach))
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+        )
         .where(Section.id == section_id)
     )
     db_section = section_result.scalar_one_or_none()
@@ -482,7 +497,7 @@ async def update_section(
         setattr(db_section, key, value)
 
     await session.commit()
-    await session.refresh(db_section, ["club", "coach"])
+    await session.refresh(db_section, ["club", "coach", "groups"])
 
     return db_section
 
@@ -512,7 +527,7 @@ async def delete_section(session: AsyncSession, section_id: int, user_id: int) -
     if not permission_check["can_create"]:
         raise PermissionDeniedError("delete", "section", permission_check["reason"])
 
-    # Hard delete
+    # Hard delete (will cascade to groups)
     await session.delete(db_section)
     await session.commit()
     return True
@@ -524,27 +539,44 @@ async def get_section_statistics(session: AsyncSession, section_id: int):
     if not section_id or section_id <= 0:
         raise ValidationError("Section ID must be positive")
 
-    section = await get_section_by_id(
-        session, section_id
-    )  # Уже выбросит ошибку если не найдена
+    section = await get_section_by_id(session, section_id)
 
-    # Basic stats - can be extended when you add student enrollment
+    # Count groups
+    groups_count_result = await session.execute(
+        select(func.count(Group.id)).where(Group.section_id == section_id)
+    )
+    total_groups = groups_count_result.scalar() or 0
+
+    active_groups_result = await session.execute(
+        select(func.count(Group.id)).where(
+            and_(Group.section_id == section_id, Group.active == True)
+        )
+    )
+    active_groups = active_groups_result.scalar() or 0
+
+    # Calculate total capacity from active groups
+    capacity_result = await session.execute(
+        select(func.sum(Group.capacity)).where(
+            and_(Group.section_id == section_id, Group.active == True)
+        )
+    )
+    total_capacity = capacity_result.scalar()
+
     stats = {
         "id": section.id,
         "name": section.name,
-        "club_name": section.club.name if section.club else None,
         "coach_name": (
-            f"{section.coach.first_name} {section.coach.last_name}"
+            f"{section.coach.first_name} {section.coach.last_name or ''}".strip()
             if section.coach
             else None
         ),
-        "capacity": section.capacity,
-        "level": section.level,
+        "total_groups": total_groups,
+        "active_groups": active_groups,
+        "total_capacity": total_capacity,
         "active": section.active,
-        "price": section.price,
         # Add more stats here when you implement student enrollment
         "enrolled_students": 0,  # Placeholder
-        "available_spots": section.capacity if section.capacity else None,
+        "available_spots": total_capacity if total_capacity else None,
     }
 
     return stats
@@ -564,7 +596,11 @@ async def toggle_section_status(
     # Получаем секцию
     section_result = await session.execute(
         select(Section)
-        .options(selectinload(Section.club), selectinload(Section.coach))
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+        )
         .where(Section.id == section_id)
     )
     db_section = section_result.scalar_one_or_none()
@@ -581,5 +617,5 @@ async def toggle_section_status(
 
     db_section.active = not db_section.active
     await session.commit()
-    await session.refresh(db_section, ["club", "coach"])
+    await session.refresh(db_section, ["club", "coach", "groups"])
     return db_section
