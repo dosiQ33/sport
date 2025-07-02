@@ -11,11 +11,13 @@ from app.core.exceptions import (
     DuplicateError,
     ValidationError,
     PermissionDeniedError,
+    BusinessLogicError,
 )
-from app.staff.models.invitations import Invitation
+from app.staff.models.invitations import Invitation, InvitationStatus
 from app.staff.models.users import UserStaff
 from app.staff.models.clubs import Club
-from app.staff.models.roles import RoleType
+from app.staff.models.roles import Role, RoleType
+from app.staff.models.user_roles import UserRole
 from app.staff.schemas.invitations import (
     InvitationCreateBySuperAdmin,
     InvitationCreateByOwner,
@@ -39,7 +41,7 @@ async def get_active_invitation_by_phone_role_club(
     conditions = [
         Invitation.phone_number == phone_number.strip(),
         Invitation.role == role,
-        Invitation.is_used == False,
+        Invitation.status == InvitationStatus.PENDING,
         Invitation.expires_at > datetime.now(timezone.utc),
     ]
 
@@ -63,10 +65,10 @@ async def get_active_invitation_by_phone_role_club(
 
 
 @db_operation
-async def get_any_active_invitation_by_phone(
+async def get_pending_invitations_by_phone(
     session: AsyncSession, phone_number: str
 ) -> List[Invitation]:
-    """Получить все активные приглашения для номера телефона"""
+    """Получить все ожидающие приглашения для номера телефона"""
     if not phone_number or not phone_number.strip():
         raise ValidationError("Phone number cannot be empty")
 
@@ -79,13 +81,33 @@ async def get_any_active_invitation_by_phone(
         .where(
             and_(
                 Invitation.phone_number == phone_number.strip(),
-                Invitation.is_used == False,
+                Invitation.status == InvitationStatus.PENDING,
                 Invitation.expires_at > datetime.now(timezone.utc),
             )
         )
         .order_by(Invitation.created_at.desc())
     )
     return result.scalars().all()
+
+
+@db_operation
+async def get_pending_invitations_by_user_id(
+    session: AsyncSession, user_id: int
+) -> List[Invitation]:
+    """Получить все ожидающие приглашения для пользователя по его ID"""
+    if not user_id or user_id <= 0:
+        raise ValidationError("User ID must be positive")
+
+    # Сначала получаем номер телефона пользователя
+    user_result = await session.execute(
+        select(UserStaff.phone_number).where(UserStaff.id == user_id)
+    )
+    phone_number = user_result.scalar_one_or_none()
+
+    if not phone_number:
+        raise NotFoundError("User", str(user_id))
+
+    return await get_pending_invitations_by_phone(session, phone_number)
 
 
 @db_operation
@@ -101,6 +123,7 @@ async def get_invitation_by_id(
         .options(
             selectinload(Invitation.club),
             selectinload(Invitation.created_by),
+            selectinload(Invitation.responded_by),
         )
         .where(Invitation.id == invitation_id)
     )
@@ -128,7 +151,7 @@ async def create_invitation_by_superadmin(
                     Invitation.phone_number == invitation_data.phone_number.strip(),
                     Invitation.role == invitation_data.role,
                     Invitation.club_id == invitation_data.club_id,
-                    Invitation.is_used == False,
+                    Invitation.status == InvitationStatus.PENDING,
                     Invitation.expires_at > datetime.now(timezone.utc),
                 )
             )
@@ -160,6 +183,7 @@ async def create_invitation_by_superadmin(
             **invitation_data.model_dump(),
             created_by_id=None,  # SuperAdmin не в базе
             created_by_type=created_by_type,
+            status=InvitationStatus.PENDING,
             expires_at=expires_at,
         )
 
@@ -196,7 +220,7 @@ async def create_invitation_by_owner(
                     Invitation.phone_number == invitation_data.phone_number.strip(),
                     Invitation.role == invitation_data.role,
                     Invitation.club_id == club_id,
-                    Invitation.is_used == False,
+                    Invitation.status == InvitationStatus.PENDING,
                     Invitation.expires_at > datetime.now(timezone.utc),
                 )
             )
@@ -230,6 +254,7 @@ async def create_invitation_by_owner(
             club_id=club_id,
             created_by_id=owner_id,
             created_by_type="owner",
+            status=InvitationStatus.PENDING,
             expires_at=expires_at,
         )
 
@@ -244,11 +269,152 @@ async def create_invitation_by_owner(
     return db_invitation
 
 
+async def accept_invitation(
+    session: AsyncSession, invitation_id: int, user_id: int
+) -> Invitation:
+    """Принять приглашение пользователем"""
+    if not invitation_id or invitation_id <= 0:
+        raise ValidationError("Invitation ID must be positive")
+
+    if not user_id or user_id <= 0:
+        raise ValidationError("User ID must be positive")
+
+    async def _accept_invitation_operation(session: AsyncSession):
+        # Получаем приглашение
+        invitation = await get_invitation_by_id(session, invitation_id)
+
+        # Проверяем, что пользователь существует
+        user_result = await session.execute(
+            select(UserStaff).where(UserStaff.id == user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise NotFoundError("User", str(user_id))
+
+        # Проверяем, что номер телефона совпадает
+        if invitation.phone_number != user.phone_number:
+            raise PermissionDeniedError(
+                "accept", "invitation", "Phone number does not match"
+            )
+
+        # Проверяем статус приглашения
+        if invitation.status != InvitationStatus.PENDING:
+            raise BusinessLogicError(
+                f"Cannot accept invitation with status {invitation.status}"
+            )
+
+        # Проверяем, что приглашение не истекло
+        if invitation.expires_at <= datetime.now(timezone.utc):
+            raise BusinessLogicError("Invitation has expired")
+
+        # Проверяем, что пользователь еще не имеет роль в этом клубе
+        if invitation.club_id:
+            existing_role = await session.execute(
+                select(UserRole).where(
+                    and_(
+                        UserRole.user_id == user_id,
+                        UserRole.club_id == invitation.club_id,
+                        UserRole.is_active == True,
+                    )
+                )
+            )
+            if existing_role.scalar_one_or_none():
+                raise BusinessLogicError("User already has an active role in this club")
+
+        # Обновляем статус приглашения
+        invitation.status = InvitationStatus.ACCEPTED
+        invitation.responded_by_id = user_id
+        invitation.responded_at = datetime.now(timezone.utc)
+
+        # Создаем запись в user_roles если есть club_id
+        if invitation.club_id:
+            # Получаем роль
+            role_result = await session.execute(
+                select(Role).where(Role.code == invitation.role)
+            )
+            role = role_result.scalar_one_or_none()
+            if not role:
+                raise NotFoundError("Role", invitation.role.value)
+
+            # Создаем запись о роли в клубе
+            user_role = UserRole(
+                user_id=user_id,
+                club_id=invitation.club_id,
+                role_id=role.id,
+                is_active=True,
+            )
+            session.add(user_role)
+
+        return invitation
+
+    # Выполняем операцию в транзакции
+    invitation = await with_db_transaction(session, _accept_invitation_operation)
+
+    # Загружаем связанные данные
+    await session.refresh(invitation, ["club", "created_by", "responded_by"])
+    return invitation
+
+
+async def decline_invitation(
+    session: AsyncSession,
+    invitation_id: int,
+    user_id: int,
+    reason: Optional[str] = None,
+) -> Invitation:
+    """Отклонить приглашение пользователем"""
+    if not invitation_id or invitation_id <= 0:
+        raise ValidationError("Invitation ID must be positive")
+
+    if not user_id or user_id <= 0:
+        raise ValidationError("User ID must be positive")
+
+    async def _decline_invitation_operation(session: AsyncSession):
+        # Получаем приглашение
+        invitation = await get_invitation_by_id(session, invitation_id)
+
+        # Проверяем, что пользователь существует
+        user_result = await session.execute(
+            select(UserStaff).where(UserStaff.id == user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise NotFoundError("User", str(user_id))
+
+        # Проверяем, что номер телефона совпадает
+        if invitation.phone_number != user.phone_number:
+            raise PermissionDeniedError(
+                "decline", "invitation", "Phone number does not match"
+            )
+
+        # Проверяем статус приглашения
+        if invitation.status != InvitationStatus.PENDING:
+            raise BusinessLogicError(
+                f"Cannot decline invitation with status {invitation.status}"
+            )
+
+        # Обновляем статус приглашения
+        invitation.status = InvitationStatus.DECLINED
+        invitation.responded_by_id = user_id
+        invitation.responded_at = datetime.now(timezone.utc)
+
+        # Можно сохранить причину в дополнительном поле (пока не реализовано)
+        # invitation.decline_reason = reason
+
+        return invitation
+
+    # Выполняем операцию в транзакции
+    invitation = await with_db_transaction(session, _decline_invitation_operation)
+
+    # Загружаем связанные данные
+    await session.refresh(invitation, ["club", "created_by", "responded_by"])
+    return invitation
+
+
 @db_operation
-async def mark_invitation_as_used(
+async def mark_invitation_as_auto_accepted(
     session: AsyncSession, invitation_id: int, user_id: int
 ) -> bool:
-    """Пометить приглашение как использованное"""
+    """Пометить приглашение как автоматически принятое (при регистрации)"""
     if not invitation_id or invitation_id <= 0:
         raise ValidationError("Invitation ID must be positive")
 
@@ -257,75 +423,17 @@ async def mark_invitation_as_used(
 
     invitation = await get_invitation_by_id(session, invitation_id)
 
-    if invitation.is_used:
-        raise ValidationError("Invitation is already used")
+    if invitation.status != InvitationStatus.PENDING:
+        raise BusinessLogicError(
+            f"Cannot auto-accept invitation with status {invitation.status}"
+        )
 
-    invitation.is_used = True
+    invitation.status = InvitationStatus.AUTO_ACCEPTED
+    invitation.responded_by_id = user_id
+    invitation.responded_at = datetime.now(timezone.utc)
+
     await session.commit()
     return True
-
-
-@db_operation
-async def get_invitations_paginated(
-    session: AsyncSession,
-    skip: int = 0,
-    limit: int = 10,
-    created_by_id: Optional[int] = None,
-    club_id: Optional[int] = None,
-    is_used: Optional[bool] = None,
-    role: Optional[RoleType] = None,
-    include_expired: bool = False,
-):
-    """Получить список приглашений с пагинацией"""
-    if skip < 0:
-        raise ValidationError("Skip parameter must be >= 0")
-
-    if limit <= 0 or limit > 100:
-        raise ValidationError("Limit must be between 1 and 100")
-
-    base_query = select(Invitation).options(
-        selectinload(Invitation.club),
-        selectinload(Invitation.created_by),
-    )
-    count_query = select(func.count(Invitation.id))
-
-    conditions = []
-
-    if created_by_id is not None:
-        if created_by_id <= 0:
-            raise ValidationError("Created by ID must be positive")
-        conditions.append(Invitation.created_by_id == created_by_id)
-
-    if club_id is not None:
-        if club_id <= 0:
-            raise ValidationError("Club ID must be positive")
-        conditions.append(Invitation.club_id == club_id)
-
-    if is_used is not None:
-        conditions.append(Invitation.is_used == is_used)
-
-    if role is not None:
-        conditions.append(Invitation.role == role)
-
-    # По умолчанию не показываем истекшие
-    if not include_expired:
-        conditions.append(Invitation.expires_at > datetime.now(timezone.utc))
-
-    if conditions:
-        filter_condition = and_(*conditions)
-        base_query = base_query.where(filter_condition)
-        count_query = count_query.where(filter_condition)
-
-    # Получаем общее количество
-    total_result = await session.execute(count_query)
-    total = total_result.scalar()
-
-    # Получаем пагинированные результаты
-    query = base_query.offset(skip).limit(limit).order_by(Invitation.created_at.desc())
-    result = await session.execute(query)
-    invitations = result.scalars().all()
-
-    return invitations, total
 
 
 @db_operation
@@ -354,9 +462,11 @@ async def delete_invitation(
             "delete", "invitation", "You can only delete invitations you created"
         )
 
-    # Нельзя удалять использованные приглашения
-    if invitation.is_used:
-        raise ValidationError("Cannot delete used invitation")
+    # Нельзя удалять обработанные приглашения
+    if invitation.status != InvitationStatus.PENDING:
+        raise ValidationError(
+            f"Cannot delete invitation with status {invitation.status.value}"
+        )
 
     await session.delete(invitation)
     await session.commit()
@@ -364,24 +474,72 @@ async def delete_invitation(
 
 
 @db_operation
-async def cleanup_expired_invitations(session: AsyncSession) -> int:
-    """Удалить истекшие неиспользованные приглашения"""
-    # Удаляем приглашения которые истекли более 30 дней назад
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+async def get_invitations_paginated(
+    session: AsyncSession,
+    skip: int = 0,
+    limit: int = 10,
+    created_by_id: Optional[int] = None,
+    club_id: Optional[int] = None,
+    status: Optional[InvitationStatus] = None,
+    role: Optional[RoleType] = None,
+    include_expired: bool = False,
+):
+    """Получить список приглашений с пагинацией"""
+    if skip < 0:
+        raise ValidationError("Skip parameter must be >= 0")
 
-    result = await session.execute(
-        select(Invitation).where(
-            and_(Invitation.expires_at < cutoff_date, Invitation.is_used == False)
-        )
+    if limit <= 0 or limit > 100:
+        raise ValidationError("Limit must be between 1 and 100")
+
+    base_query = select(Invitation).options(
+        selectinload(Invitation.club),
+        selectinload(Invitation.created_by),
+        selectinload(Invitation.responded_by),
     )
-    expired_invitations = result.scalars().all()
+    count_query = select(func.count(Invitation.id))
 
-    count = len(expired_invitations)
-    for invitation in expired_invitations:
-        await session.delete(invitation)
+    conditions = []
 
-    await session.commit()
-    return count
+    if created_by_id is not None:
+        if created_by_id <= 0:
+            raise ValidationError("Created by ID must be positive")
+        conditions.append(Invitation.created_by_id == created_by_id)
+
+    if club_id is not None:
+        if club_id <= 0:
+            raise ValidationError("Club ID must be positive")
+        conditions.append(Invitation.club_id == club_id)
+
+    if status is not None:
+        conditions.append(Invitation.status == status)
+
+    if role is not None:
+        conditions.append(Invitation.role == role)
+
+    # По умолчанию не показываем истекшие pending приглашения
+    if not include_expired:
+        conditions.append(
+            or_(
+                Invitation.status != InvitationStatus.PENDING,
+                Invitation.expires_at > datetime.now(timezone.utc),
+            )
+        )
+
+    if conditions:
+        filter_condition = and_(*conditions)
+        base_query = base_query.where(filter_condition)
+        count_query = count_query.where(filter_condition)
+
+    # Получаем общее количество
+    total_result = await session.execute(count_query)
+    total = total_result.scalar()
+
+    # Получаем пагинированные результаты
+    query = base_query.offset(skip).limit(limit).order_by(Invitation.created_at.desc())
+    result = await session.execute(query)
+    invitations = result.scalars().all()
+
+    return invitations, total
 
 
 @db_operation
@@ -404,7 +562,6 @@ async def get_invitation_stats(
         conditions.append(Invitation.club_id == club_id)
 
     base_condition = and_(*conditions) if conditions else True
-    now = datetime.now(timezone.utc)
 
     # Общее количество
     total_result = await session.execute(
@@ -412,37 +569,13 @@ async def get_invitation_stats(
     )
     total = total_result.scalar() or 0
 
-    # Использованные
-    used_result = await session.execute(
-        select(func.count(Invitation.id)).where(
-            and_(base_condition, Invitation.is_used == True)
-        )
+    # По статусам
+    by_status_result = await session.execute(
+        select(Invitation.status, func.count(Invitation.id))
+        .where(base_condition)
+        .group_by(Invitation.status)
     )
-    used = used_result.scalar() or 0
-
-    # Активные (не использованные и не истекшие)
-    active_result = await session.execute(
-        select(func.count(Invitation.id)).where(
-            and_(
-                base_condition,
-                Invitation.is_used == False,
-                Invitation.expires_at > now,
-            )
-        )
-    )
-    active = active_result.scalar() or 0
-
-    # Истекшие
-    expired_result = await session.execute(
-        select(func.count(Invitation.id)).where(
-            and_(
-                base_condition,
-                Invitation.is_used == False,
-                Invitation.expires_at <= now,
-            )
-        )
-    )
-    expired = expired_result.scalar() or 0
+    by_status = {status.value: count for status, count in by_status_result}
 
     # По ролям
     by_role_result = await session.execute(
@@ -454,8 +587,30 @@ async def get_invitation_stats(
 
     return {
         "total_invitations": total,
-        "used_invitations": used,
-        "active_invitations": active,
-        "expired_invitations": expired,
+        "by_status": by_status,
         "by_role": by_role,
     }
+
+
+@db_operation
+async def cleanup_expired_invitations(session: AsyncSession) -> int:
+    """Обновить статус истекших pending приглашений"""
+    now = datetime.now(timezone.utc)
+
+    # Находим все pending приглашения, которые истекли
+    result = await session.execute(
+        select(Invitation).where(
+            and_(
+                Invitation.status == InvitationStatus.PENDING,
+                Invitation.expires_at <= now,
+            )
+        )
+    )
+    expired_invitations = result.scalars().all()
+
+    count = len(expired_invitations)
+    for invitation in expired_invitations:
+        invitation.status = InvitationStatus.EXPIRED
+
+    await session.commit()
+    return count

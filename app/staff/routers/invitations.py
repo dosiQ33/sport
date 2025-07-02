@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional
+from datetime import datetime, timezone
 
 from app.core.database import get_session
 from app.core.limits import limiter
@@ -10,7 +11,13 @@ from app.staff.schemas.invitations import (
     InvitationCreateByOwner,
     InvitationRead,
     InvitationListResponse,
+    InvitationAccept,
+    InvitationDecline,
+    InvitationActionResponse,
+    PendingInvitationsResponse,
+    PendingInvitationRead,
 )
+from app.staff.models.invitations import InvitationStatus
 
 from app.staff.crud.users import get_user_staff_by_telegram_id
 from app.staff.crud.invitations import (
@@ -19,6 +26,9 @@ from app.staff.crud.invitations import (
     get_invitation_by_id,
     delete_invitation,
     get_invitation_stats,
+    accept_invitation,
+    decline_invitation,
+    get_pending_invitations_by_user_id,
 )
 
 router = APIRouter(prefix="/invitations", tags=["Invitations"])
@@ -53,13 +63,134 @@ async def create_club_staff_invitation(
     return db_invitation
 
 
+# НОВЫЕ ENDPOINTS ДЛЯ РАБОТЫ С ОТВЕТАМИ НА ПРИГЛАШЕНИЯ
+
+
+@router.get("/my-pending", response_model=PendingInvitationsResponse)
+@limiter.limit("60/minute")
+async def get_my_pending_invitations(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Получить все ожидающие приглашения для текущего пользователя.
+
+    Показывает приглашения, на которые пользователь может ответить (принять/отклонить).
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise NotFoundError("Staff user")
+
+    # Получаем ожидающие приглашения
+    pending_invitations = await get_pending_invitations_by_user_id(db, user_staff.id)
+
+    # Преобразуем в схему ответа
+    pending_reads = []
+    expiring_soon_count = 0
+    now = datetime.now(timezone.utc)
+
+    for invitation in pending_invitations:
+        days_until_expiry = (invitation.expires_at - now).days
+        if days_until_expiry <= 3:
+            expiring_soon_count += 1
+
+        pending_read = PendingInvitationRead(
+            id=invitation.id,
+            role=invitation.role,
+            club_id=invitation.club_id,
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+            club=invitation.club,
+            created_by=invitation.created_by,
+            created_by_type=invitation.created_by_type,
+            days_until_expiry=max(0, days_until_expiry),
+        )
+        pending_reads.append(pending_read)
+
+    return PendingInvitationsResponse(
+        invitations=pending_reads,
+        total=len(pending_reads),
+        expiring_soon=expiring_soon_count,
+    )
+
+
+@router.post("/{invitation_id}/accept", response_model=InvitationActionResponse)
+@limiter.limit("10/minute")
+async def accept_pending_invitation(
+    request: Request,
+    invitation_id: int,
+    invitation_accept: InvitationAccept,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Принять приглашение.
+
+    При принятии автоматически создается запись в user_roles для соответствующего клуба.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise NotFoundError("Staff user")
+
+    # Принимаем приглашение (все проверки в CRUD)
+    invitation = await accept_invitation(db, invitation_id, user_staff.id)
+
+    return InvitationActionResponse(
+        id=invitation.id,
+        status=invitation.status,
+        message=f"Invitation accepted successfully! You are now {invitation.role.value} in {invitation.club.name if invitation.club else 'the system'}.",
+        club_id=invitation.club_id,
+        club_name=invitation.club.name if invitation.club else None,
+        role=invitation.role,
+    )
+
+
+@router.post("/{invitation_id}/decline", response_model=InvitationActionResponse)
+@limiter.limit("10/minute")
+async def decline_pending_invitation(
+    request: Request,
+    invitation_id: int,
+    invitation_decline: InvitationDecline,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Отклонить приглашение.
+
+    - **reason**: Причина отклонения (опционально)
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise NotFoundError("Staff user")
+
+    # Отклоняем приглашение (все проверки в CRUD)
+    invitation = await decline_invitation(
+        db, invitation_id, user_staff.id, invitation_decline.reason
+    )
+
+    return InvitationActionResponse(
+        id=invitation.id,
+        status=invitation.status,
+        message=f"Invitation declined.",
+        club_id=invitation.club_id,
+        club_name=invitation.club.name if invitation.club else None,
+        role=invitation.role,
+    )
+
+
+# СУЩЕСТВУЮЩИЕ ENDPOINTS (обновленные)
+
+
 @router.get("/my", response_model=InvitationListResponse)
 @limiter.limit("30/minute")
 async def get_my_invitations(
     request: Request,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    is_used: Optional[bool] = None,
+    status: Optional[InvitationStatus] = Query(
+        None, description="Filter by invitation status"
+    ),
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
@@ -74,7 +205,7 @@ async def get_my_invitations(
 
     # Валидация параметров происходит в CRUD
     invitations, total = await get_invitations_paginated(
-        db, skip=skip, limit=size, created_by_id=user_staff.id, is_used=is_used
+        db, skip=skip, limit=size, created_by_id=user_staff.id, status=status
     )
 
     pages = (total + size - 1) // size
@@ -91,7 +222,9 @@ async def get_club_invitations(
     club_id: int,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    is_used: Optional[bool] = None,
+    status: Optional[InvitationStatus] = Query(
+        None, description="Filter by invitation status"
+    ),
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ):
@@ -114,7 +247,7 @@ async def get_club_invitations(
 
     # Валидация параметров происходит в CRUD
     invitations, total = await get_invitations_paginated(
-        db, skip=skip, limit=size, club_id=club_id, is_used=is_used
+        db, skip=skip, limit=size, club_id=club_id, status=status
     )
 
     pages = (total + size - 1) // size
@@ -169,7 +302,7 @@ async def delete_invitation_route(
 ):
     """
     Удалить приглашение (только создатель).
-    Нельзя удалить использованное приглашение.
+    Нельзя удалить обработанное приглашение.
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:

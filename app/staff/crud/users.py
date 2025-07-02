@@ -11,9 +11,10 @@ from app.core.exceptions import (
     AuthenticationError,
     TelegramAuthError,
 )
+from app.staff.models.invitations import InvitationStatus
 from app.staff.crud.invitations import (
-    get_any_active_invitation_by_phone,
-    mark_invitation_as_used,
+    get_pending_invitations_by_phone,
+    mark_invitation_as_auto_accepted,
 )
 from app.staff.models.roles import Role, RoleType
 from app.staff.models.user_roles import UserRole
@@ -159,8 +160,8 @@ async def create_user_staff(
         except Exception as e:
             raise TelegramAuthError(f"Contact authentication failed: {str(e)}")
 
-        # Проверяем активные приглашения
-        active_invitations = await get_any_active_invitation_by_phone(
+        # Проверяем активные приглашения (только PENDING статус)
+        active_invitations = await get_pending_invitations_by_phone(
             session, phone_number
         )
         if not active_invitations:
@@ -226,8 +227,8 @@ async def create_user_staff(
                 )
                 session.add(user_role)
 
-            # Помечаем приглашение как использованное
-            await mark_invitation_as_used(session, inv.id, db_user.id)
+            # Помечаем приглашение как автоматически принятое
+            await mark_invitation_as_auto_accepted(session, inv.id, db_user.id)
 
         return db_user
 

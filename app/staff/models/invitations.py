@@ -1,4 +1,6 @@
 # app/staff/models/invitations.py
+import enum
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     Integer,
@@ -15,14 +17,20 @@ from app.core.database import Base
 from app.staff.models.roles import RoleType
 
 
+class InvitationStatus(str, enum.Enum):
+    PENDING = "pending"  # Ожидает ответа (по умолчанию)
+    ACCEPTED = "accepted"  # Принято пользователем
+    DECLINED = "declined"  # Отклонено пользователем
+    AUTO_ACCEPTED = "auto_accepted"  # Автоматически принято при регистрации
+    EXPIRED = "expired"  # Истекло по времени
+
+
 class Invitation(Base):
     __tablename__ = "invitations"
 
     id = Column(Integer, primary_key=True)
 
-    # Убираем unique=True, так как один номер может иметь несколько приглашений для разных ролей
     phone_number = Column(String(30), nullable=False, index=True)
-
     role = Column(Enum(RoleType), nullable=False)
 
     # SET NULL when club is deleted
@@ -41,25 +49,51 @@ class Invitation(Base):
         default="system",
     )
 
-    is_used = Column(Boolean, default=False, nullable=False, index=True)
+    # Новые поля для статуса
+    status = Column(
+        Enum(InvitationStatus),
+        nullable=False,
+        default=InvitationStatus.PENDING,
+        index=True,
+    )
 
-    # Добавляем expires_at - приглашения действуют ограниченное время
+    # SET NULL when responder is deleted
+    responded_by_id = Column(
+        Integer, ForeignKey("user_staff.id", ondelete="SET NULL"), nullable=True
+    )
+
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+
     expires_at = Column(DateTime(timezone=True), nullable=False)
-
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Отношения
     club = relationship("Club", foreign_keys=[club_id])
     created_by = relationship("UserStaff", foreign_keys=[created_by_id])
+    responded_by = relationship("UserStaff", foreign_keys=[responded_by_id])
 
     # Составные индексы для оптимизации запросов
     __table_args__ = (
-        # Для поиска активных приглашений по номеру
-        Index("ix_invitations_phone_active", "phone_number", "is_used"),
-        # Для поиска приглашений по номеру, роли и клубу (уникальность активного приглашения)
+        # Для поиска приглашений по номеру и статусу
+        Index("ix_invitations_phone_status", "phone_number", "status"),
+        # Для поиска приглашений по номеру, роли и клубу
         Index("ix_invitations_phone_role_club", "phone_number", "role", "club_id"),
         # Для очистки истекших приглашений
-        Index("ix_invitations_expires_used", "expires_at", "is_used"),
+        Index("ix_invitations_expires_status", "expires_at", "status"),
         # Для поиска по создателю
         Index("ix_invitations_creator", "created_by_id", "created_by_type"),
+        # Для поиска по респонденту
+        Index("ix_invitations_responder", "responded_by_id", "responded_at"),
     )
+
+    @property
+    def is_active(self) -> bool:
+        """Возвращает True если приглашение активное (можно принять/отклонить)"""
+
+        return (
+            self.status == InvitationStatus.PENDING
+            and self.expires_at > datetime.now(timezone.utc)
+        )
+
+    def __repr__(self):
+        return f"<Invitation(id={self.id}, phone='{self.phone_number}', role={self.role}, status={self.status})>"

@@ -18,6 +18,7 @@ from app.staff.crud.users import (
 from app.staff.models.users import UserStaff
 from app.staff.models.clubs import Club
 from app.staff.models.sections import Section
+from app.staff.models.invitations import InvitationStatus
 from app.students.models.users import UserStudent
 from app.staff.schemas.users import UserLimitsUpdate, UserStaffRead
 from app.staff.crud.invitations import (
@@ -60,7 +61,7 @@ async def create_owner_invitation(
 async def get_all_invitations(
     page: int = Query(1, ge=1, description="Page number starting from 1"),
     size: int = Query(20, ge=1, le=100, description="Number of items per page"),
-    is_used: Optional[bool] = Query(None, description="Filter by usage status"),
+    status: Optional[InvitationStatus] = Query(None, description="Filter by status"),
     include_expired: bool = Query(False, description="Include expired invitations"),
     db: AsyncSession = Depends(get_session),
     is_superadmin: bool = Depends(verify_superadmin_token),
@@ -70,7 +71,7 @@ async def get_all_invitations(
 
     - **page**: Page number (starts from 1)
     - **size**: Number of invitations per page (max 100)
-    - **is_used**: Filter by usage status (true/false/null for all)
+    - **status**: Filter by status (pending/accepted/declined/auto_accepted/expired)
     - **include_expired**: Include expired invitations in results
 
     Требуется заголовок: X-SuperAdmin-Token
@@ -79,7 +80,7 @@ async def get_all_invitations(
 
     # Валидация параметров происходит в CRUD
     invitations, total = await get_invitations_paginated(
-        db, skip=skip, limit=size, is_used=is_used, include_expired=include_expired
+        db, skip=skip, limit=size, status=status, include_expired=include_expired
     )
 
     pages = (total + size - 1) // size
