@@ -1,7 +1,7 @@
 import math
 from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 from app.core.database import get_session
 from app.core.limits import limiter
@@ -11,7 +11,6 @@ from app.staff.schemas.clubs import ClubCreate, ClubUpdate, ClubRead, ClubListRe
 from app.staff.crud.users import get_user_staff_by_telegram_id
 from app.staff.crud.clubs import (
     get_club_by_id,
-    get_clubs_by_owner,
     get_clubs_paginated,
     create_club,
     update_club,
@@ -125,25 +124,7 @@ async def get_clubs_list(
     )
 
 
-@router.get("/my", response_model=List[ClubRead])
-@limiter.limit("20/minute")
-async def get_my_clubs(
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    db: AsyncSession = Depends(get_session),
-):
-    """
-    Get all clubs owned by the authenticated user.
-    """
-    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
-    if not user_staff:
-        raise NotFoundError("Staff user")
-
-    clubs = await get_clubs_by_owner(db, user_staff.id)
-    return clubs
-
-
-@router.get("/my/with-roles")
+@router.get("/my")
 @limiter.limit("20/minute")
 async def get_my_clubs_with_roles(
     request: Request,
