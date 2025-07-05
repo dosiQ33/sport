@@ -15,7 +15,9 @@ class GroupBase(BaseModel):
     )
 
     # Данные перенесенные из sections
-    schedule: dict[str, Any] = Field(default_factory=dict, description="Schedule data")
+    schedule: dict[str, Any] = Field(
+        default_factory=dict, description="Schedule template (weekly pattern)"
+    )
     price: Optional[Decimal] = Field(None, ge=0, description="Group price")
     capacity: Optional[int] = Field(None, ge=1, le=100, description="Maximum capacity")
     level: Optional[str] = Field(None, description="Skill level")

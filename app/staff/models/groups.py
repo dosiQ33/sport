@@ -51,6 +51,7 @@ class Group(Base):
     # Relations
     section = relationship("Section", back_populates="groups")
     coach = relationship("UserStaff", foreign_keys=[coach_id])
+    lessons = relationship("Lesson", back_populates="group", cascade="all, delete")
 
     def __repr__(self):
         return (

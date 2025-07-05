@@ -38,6 +38,7 @@ from app.staff.routers import superadmin
 from app.staff.routers import invitations
 from app.staff.routers import team as staff_team
 from app.students.routers import users as student_users
+from app.staff.routers import schedule
 
 # Настройка системы логирования
 setup_logging(LOG_LEVEL, LOG_FORMAT)
@@ -154,11 +155,12 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.include_router(staff_users.router, prefix="/api/v1")
 app.include_router(staff_clubs.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
-app.include_router(staff_groups.router, prefix="/api/v1")  # ← НОВЫЙ РОУТЕР
+app.include_router(staff_groups.router, prefix="/api/v1")
 app.include_router(invitations.router, prefix="/api/v1")
 app.include_router(student_users.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(staff_team.router, prefix="/api/v1")
+app.include_router(schedule.router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -177,7 +179,8 @@ async def root():
             "Rate limiting",
             "Telegram authentication",
             "Team management",
-            "Groups management",  # ← НОВАЯ ФИЧА
+            "Groups management",
+            "Schedule & Lessons management",
         ],
     }
 
