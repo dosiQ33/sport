@@ -102,12 +102,28 @@ async def validation_exception_handler(
     formatted_errors = []
     for error in errors:
         location = " -> ".join(str(loc) for loc in error.get("loc", []))
+
+        # FIXED: Handle non-serializable input safely
+        input_value = error.get("input")
+        safe_input = None
+
+        if input_value is not None:
+            try:
+                # Try to serialize to test if it's JSON-safe
+                import json
+
+                json.dumps(input_value)
+                safe_input = input_value
+            except (TypeError, ValueError):
+                # If not JSON-serializable, convert to string representation
+                safe_input = str(input_value)
+
         formatted_errors.append(
             {
                 "field": location,
                 "message": error.get("msg", "Validation error"),
                 "type": error.get("type", "value_error"),
-                "input": error.get("input"),
+                "input": safe_input,  # Now safe for JSON serialization
             }
         )
 

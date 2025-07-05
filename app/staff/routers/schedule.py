@@ -103,16 +103,26 @@ async def update_group_schedule_template(
     if not user_staff:
         raise NotFoundError("Staff user")
 
-    # Get group and check permissions
+    from app.staff.schemas.groups import GroupUpdate
+
+    # Method 1: Use mode='json' for proper serialization
+    try:
+        schedule_dict = schedule_template.model_dump(mode="json")
+        group_update_data = GroupUpdate(schedule=schedule_dict)
+    except Exception:
+        # Method 2: Manual date conversion fallback
+        schedule_dict = schedule_template.model_dump()
+        # Convert date objects to strings
+        if "valid_from" in schedule_dict:
+            schedule_dict["valid_from"] = schedule_dict["valid_from"].isoformat()
+        if "valid_until" in schedule_dict:
+            schedule_dict["valid_until"] = schedule_dict["valid_until"].isoformat()
+        group_update_data = GroupUpdate(schedule=schedule_dict)
+
+    # Update the group - this will handle permission checking
     from app.staff.crud.groups import update_group
 
-    # Update the schedule in the group
-    group_update = {"schedule": schedule_template.model_dump()}
-
-    # This will handle permission checking
-    updated_group = await update_group(
-        db, group_id, type("GroupUpdate", (), group_update)(), user_staff.id
-    )
+    updated_group = await update_group(db, group_id, group_update_data, user_staff.id)
 
     return schedule_template
 
@@ -153,13 +163,24 @@ async def patch_group_schedule_template(
 
     updated_template = ScheduleTemplate(**updated_template_data)
 
-    # Update group
+    # Update group with proper serialization
+    from app.staff.schemas.groups import GroupUpdate
+
+    try:
+        schedule_dict = updated_template.model_dump(mode="json")
+        group_update_data = GroupUpdate(schedule=schedule_dict)
+    except Exception:
+        # Fallback with manual date conversion
+        schedule_dict = updated_template.model_dump()
+        if "valid_from" in schedule_dict:
+            schedule_dict["valid_from"] = schedule_dict["valid_from"].isoformat()
+        if "valid_until" in schedule_dict:
+            schedule_dict["valid_until"] = schedule_dict["valid_until"].isoformat()
+        group_update_data = GroupUpdate(schedule=schedule_dict)
+
     from app.staff.crud.groups import update_group
 
-    group_update = {"schedule": updated_template.model_dump()}
-    await update_group(
-        db, group_id, type("GroupUpdate", (), group_update)(), user_staff.id
-    )
+    await update_group(db, group_id, group_update_data, user_staff.id)
 
     return updated_template
 
@@ -553,9 +574,6 @@ async def get_week_schedule(
     )
 
 
-# ===== STATISTICS ENDPOINTS =====
-
-
 @router.get("/stats/group/{group_id}")
 @limiter.limit("20/minute")
 async def get_group_schedule_stats(
@@ -612,9 +630,6 @@ async def get_coach_schedule_stats(
         "coach_id": coach_id,
         **stats,
     }
-
-
-# ===== BULK OPERATIONS =====
 
 
 @router.post("/lessons/bulk-update", response_model=Dict[str, Any])

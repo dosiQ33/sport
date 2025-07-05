@@ -291,22 +291,49 @@ async def update_group(
 
     club_id = db_group.section.club_id
 
-    # Check permissions
-    from app.staff.crud.sections import check_user_club_section_permission
+    # FIXED: Direct permission check without problematic async function calls
+    # Check if user is club owner
+    club_result = await session.execute(select(Club).where(Club.id == club_id))
+    club = club_result.scalar_one_or_none()
 
-    permission_check = await check_user_club_section_permission(
-        session, user_id, club_id
-    )
-    if not permission_check["can_create"]:  # can_create means management rights
-        raise PermissionDeniedError("update", "group", permission_check["reason"])
+    if not club:
+        raise NotFoundError("Club", str(club_id))
+
+    is_owner = club.owner_id == user_id
+
+    # Check if user has admin/owner role in this club
+    has_permission = False
+    if not is_owner:
+        user_role_result = await session.execute(
+            select(UserRole, Role.code)
+            .join(Role, UserRole.role_id == Role.id)
+            .where(
+                and_(
+                    UserRole.user_id == user_id,
+                    UserRole.club_id == club_id,
+                    UserRole.is_active == True,
+                )
+            )
+        )
+        user_role_data = user_role_result.first()
+
+        if user_role_data:
+            role_code = user_role_data[1]  # Role.code
+            has_permission = role_code in [RoleType.owner, RoleType.admin]
+
+    if not (is_owner or has_permission):
+        raise PermissionDeniedError(
+            "update", "group", "No permission to update group in this club"
+        )
 
     update_data = group_update.model_dump(exclude_unset=True)
 
-    # Validate coach if being updated
+    # FIXED: Inline coach validation without separate async function
     if "coach_id" in update_data and update_data["coach_id"]:
         if update_data["coach_id"] <= 0:
             raise ValidationError("Coach ID must be positive")
 
+        # Check coach exists
         coach_result = await session.execute(
             select(UserStaff).where(UserStaff.id == update_data["coach_id"])
         )
@@ -314,13 +341,20 @@ async def update_group(
         if not coach:
             raise NotFoundError("Coach", str(update_data["coach_id"]))
 
-        # Validate coach belongs to the same club
-        if not await validate_coach_belongs_to_club(
-            session, update_data["coach_id"], club_id
-        ):
+        # Check coach belongs to club (inline, no separate function)
+        coach_role_result = await session.execute(
+            select(UserRole).where(
+                and_(
+                    UserRole.user_id == update_data["coach_id"],
+                    UserRole.club_id == club_id,
+                    UserRole.is_active == True,
+                )
+            )
+        )
+        if not coach_role_result.scalar_one_or_none():
             raise ValidationError("Coach must belong to the same club as the section")
 
-    # Check if new name conflicts with existing groups in the same section
+    # Check name conflicts
     if "name" in update_data and update_data["name"] != db_group.name:
         existing_group = await session.execute(
             select(Group).where(
