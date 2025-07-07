@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from app.core.exceptions import ValidationError
+from app.core.validations import clean_phone_number
 
 
 class UserStudentPreferences(BaseModel):
@@ -40,6 +41,13 @@ class UserStudentBase(BaseModel):
                 raise ValidationError(
                     "Username must be 5-32 characters, alphanumeric and underscore only"
                 )
+        return v
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v):
+        if v:
+            return clean_phone_number(v)
         return v
 
 

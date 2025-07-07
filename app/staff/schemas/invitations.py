@@ -3,24 +3,21 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 from app.core.exceptions import ValidationError
+from app.core.validations import clean_phone_number
 from app.staff.schemas.roles import RoleType
 from app.staff.models.invitations import InvitationStatus
 import re
 
 
 class InvitationBase(BaseModel):
-    phone_number: str = Field(..., min_length=10, max_length=30)
+    phone_number: str = Field(..., min_length=10, max_length=20)
     role: RoleType
     club_id: Optional[int] = Field(None, gt=0)
 
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v):
-        # Базовая валидация номера телефона
-        clean_phone = re.sub(r"\s+", "", v)
-        if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
-            raise ValidationError("Invalid phone number format")
-        return clean_phone
+        return clean_phone_number(v)
 
 
 class InvitationCreateBySuperAdmin(InvitationBase):

@@ -497,7 +497,7 @@ async def update_section(
         setattr(db_section, key, value)
 
     await session.commit()
-    await session.refresh(db_section, ["club", "coach", "groups"])
+    await session.refresh(db_section, ["club", "coach", "groups", "updated_at"])
 
     return db_section
 

@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from app.core.exceptions import ValidationError
+from app.core.validations import clean_phone_number
 
 
 class UserLimits(BaseModel):
@@ -35,7 +36,7 @@ class UserStaffBase(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, max_length=50)
     phone_number: str = Field(
-        ..., min_length=10, max_length=30, description="Phone number is required"
+        ..., min_length=10, max_length=20, description="Phone number is required"
     )
     username: Optional[str] = Field(None, max_length=64)
     photo_url: Optional[str] = Field(None, max_length=512)
@@ -50,6 +51,13 @@ class UserStaffBase(BaseModel):
                 raise ValidationError(
                     "Username must be 5-32 characters, alphanumeric and underscore only"
                 )
+        return v
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v):
+        if v:
+            return clean_phone_number(v)
         return v
 
 

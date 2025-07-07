@@ -310,7 +310,6 @@ async def with_db_transaction(
     return await transaction_manager.execute(operation, *args, **kwargs)
 
 
-# Декораторы для CRUD операций
 def db_operation(func: F) -> F:
     """
     Декоратор для CRUD операций с автоматическим retry и логированием
@@ -323,6 +322,52 @@ def db_operation(func: F) -> F:
         try:
             logger.debug(f"Starting database operation: {operation_name}")
             result = await func(*args, **kwargs)
+
+            # Безопасная подготовка ORM объектов
+            if result and hasattr(result, "_sa_instance_state"):
+                session = None
+                for arg in args:
+                    if isinstance(arg, AsyncSession):
+                        session = arg
+                        break
+
+                if session and result in session:
+                    # ВАЖНО: Загружаем все атрибуты перед expunge
+                    if hasattr(result, "__table__"):
+                        for column in result.__table__.columns:
+                            try:
+                                # Принудительно обращаемся к каждому атрибуту
+                                getattr(result, column.name)
+                            except:
+                                pass
+
+                    # Теперь безопасно отсоединяем
+                    session.expunge(result)
+
+            # Если это список ORM объектов
+            elif (
+                isinstance(result, list)
+                and result
+                and hasattr(result[0], "_sa_instance_state")
+            ):
+                session = None
+                for arg in args:
+                    if isinstance(arg, AsyncSession):
+                        session = arg
+                        break
+
+                if session:
+                    for obj in result:
+                        if obj in session:
+                            # Загружаем атрибуты перед expunge
+                            if hasattr(obj, "__table__"):
+                                for column in obj.__table__.columns:
+                                    try:
+                                        getattr(obj, column.name)
+                                    except:
+                                        pass
+                            session.expunge(obj)
+
             logger.debug(f"Database operation completed: {operation_name}")
             return result
 

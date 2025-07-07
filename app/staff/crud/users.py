@@ -11,6 +11,7 @@ from app.core.exceptions import (
     AuthenticationError,
     TelegramAuthError,
 )
+from app.core.validations import clean_phone_number
 from app.staff.models.invitations import InvitationStatus
 from app.staff.crud.invitations import (
     get_pending_invitations_by_phone,
@@ -156,7 +157,9 @@ async def create_user_staff(
             contact_data = telegram_auth.authenticate_contact_request(
                 user.contact_init_data
             )
-            phone_number = contact_data["contact"]["phone_number"]
+            raw_phone = contact_data["contact"]["phone_number"]
+            # Очищаем номер телефона
+            phone_number = clean_phone_number(raw_phone)
         except Exception as e:
             raise TelegramAuthError(f"Contact authentication failed: {str(e)}")
 

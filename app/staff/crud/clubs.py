@@ -212,7 +212,7 @@ async def update_club(
         setattr(db_club, key, value)
 
     await session.commit()
-    await session.refresh(db_club, ["owner"])
+    await session.refresh(db_club, ["owner", "updated_at"])
 
     return db_club
 

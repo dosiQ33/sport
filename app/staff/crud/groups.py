@@ -375,7 +375,7 @@ async def update_group(
         setattr(db_group, key, value)
 
     await session.commit()
-    await session.refresh(db_group, ["section", "coach"])
+    await session.refresh(db_group, ["section", "coach", "updated_at"])
 
     return db_group
 

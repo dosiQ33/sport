@@ -11,6 +11,7 @@ from app.core.exceptions import (
     AuthenticationError,
     TelegramAuthError,
 )
+from app.core.validations import clean_phone_number
 from app.students.models.users import UserStudent
 from app.core.config import TELEGRAM_BOT_TOKEN
 from app.core.telegram_auth import TelegramAuth
@@ -136,7 +137,8 @@ async def create_user_student(
         contact_data = telegram_auth.authenticate_contact_request(
             user.contact_init_data
         )
-        phone_number = contact_data["contact"]["phone_number"]
+        raw_phone = contact_data["contact"]["phone_number"]
+        phone_number = clean_phone_number(raw_phone)
     except Exception as e:
         raise TelegramAuthError(f"Contact authentication failed: {str(e)}")
 

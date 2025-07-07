@@ -274,7 +274,7 @@ async def update_lesson(
         setattr(lesson, key, value)
 
     await session.commit()
-    await session.refresh(lesson, ["group", "coach"])
+    await session.refresh(lesson, ["group", "coach", "updated_at"])
 
     return lesson
 

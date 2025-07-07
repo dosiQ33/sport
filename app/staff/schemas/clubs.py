@@ -5,6 +5,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.exceptions import ValidationError
+from app.core.validations import clean_phone_number
 
 
 class ClubBase(BaseModel):
@@ -54,10 +55,7 @@ class ClubBase(BaseModel):
     @classmethod
     def validate_phone(cls, v):
         if v:
-            # Basic phone validation - remove spaces and check format
-            clean_phone = re.sub(r"\s+", "", v)
-            if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
-                raise ValidationError("Invalid phone number format")
+            return clean_phone_number(v)
         return v
 
     @field_validator("telegram_url")
