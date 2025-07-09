@@ -44,10 +44,7 @@ class InvitationCreateByOwner(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v):
-        clean_phone = re.sub(r"\s+", "", v)
-        if not re.match(r"^\+?[1-9]\d{7,20}$", clean_phone):
-            raise ValidationError("Invalid phone number format")
-        return clean_phone
+        return clean_phone_number(v)
 
 
 # Базовая информация для связанных сущностей
