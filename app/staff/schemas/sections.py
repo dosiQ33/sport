@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -82,7 +83,7 @@ class GroupInfo(BaseModel):
     name: str
     level: Optional[str] = None
     capacity: Optional[int] = None
-    price: Optional[str] = None  # Decimal as string for JSON
+    price: Optional[Decimal] = None
     active: bool
     enrolled_students: int = 0  # Будет реализовано позже
 
