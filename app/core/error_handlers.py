@@ -1,9 +1,8 @@
-"""
-Централизованные обработчики ошибок для FastAPI
-"""
-
 import logging
 import traceback
+import json
+import re
+import os
 from typing import Union
 from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -103,19 +102,14 @@ async def validation_exception_handler(
     for error in errors:
         location = " -> ".join(str(loc) for loc in error.get("loc", []))
 
-        # FIXED: Handle non-serializable input safely
         input_value = error.get("input")
         safe_input = None
 
         if input_value is not None:
             try:
-                # Try to serialize to test if it's JSON-safe
-                import json
-
                 json.dumps(input_value)
                 safe_input = input_value
             except (TypeError, ValueError):
-                # If not JSON-serializable, convert to string representation
                 safe_input = str(input_value)
 
         formatted_errors.append(
@@ -123,7 +117,7 @@ async def validation_exception_handler(
                 "field": location,
                 "message": error.get("msg", "Validation error"),
                 "type": error.get("type", "value_error"),
-                "input": safe_input,  # Now safe for JSON serialization
+                "input": safe_input,
             }
         )
 
@@ -152,16 +146,11 @@ async def database_exception_handler(
 ) -> JSONResponse:
     """Обработчик ошибок SQLAlchemy"""
 
-    # Определяем тип ошибки и создаем соответствующее исключение
     if isinstance(exc, IntegrityError):
-        # Парсим constraint name из сообщения
         constraint = "unknown"
         if exc.orig and hasattr(exc.orig, "constraint_name"):
             constraint = exc.orig.constraint_name
         elif "constraint" in str(exc.orig).lower():
-            # Простой парсинг constraint name из сообщения
-            import re
-
             match = re.search(r'constraint "([^"]+)"', str(exc.orig))
             if match:
                 constraint = match.group(1)
@@ -177,7 +166,6 @@ async def database_exception_handler(
     else:
         app_exc = DatabaseError(f"Database operation failed: {str(exc)}")
 
-    # Логируем детали ошибки
     logger.error(
         f"Database exception: {type(exc).__name__} - {str(exc)}",
         extra={
@@ -201,7 +189,6 @@ async def postgres_exception_handler(
     elif isinstance(exc, TooManyConnectionsError):
         app_exc = DatabaseConnectionError("Too many database connections")
     else:
-        # Парсим PostgreSQL error code
         error_code = getattr(exc, "sqlstate", "unknown")
         app_exc = DatabaseError(
             f"PostgreSQL error: {str(exc)}", details={"postgres_code": error_code}
@@ -232,9 +219,6 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
             "traceback": traceback.format_exc(),
         },
     )
-
-    # В production не показываем детали ошибки
-    import os
 
     is_development = os.getenv("ENVIRONMENT", "production").lower() in [
         "development",

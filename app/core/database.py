@@ -21,27 +21,25 @@ from .exceptions import DatabaseConnectionError, DatabaseTimeoutError
 
 logger = logging.getLogger(__name__)
 
-# Настройки engine
 engine = create_async_engine(
     DATABASE_URL,
-    echo=False,  # Отключаем echo в production
+    echo=False,
     pool_size=20,
     max_overflow=10,
     pool_timeout=30,
-    pool_recycle=3600,  # Переподключение каждый час
-    pool_pre_ping=True,  # Проверка соединения перед использованием
+    pool_recycle=3600,
+    pool_pre_ping=True,
 )
 
 async_session = sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,
-    autoflush=False,  # Отключаем автофлаш для лучшего контроля
+    autoflush=False,
 )
 
 Base = declarative_base()
 
-# Типы для retry decorator
 F = TypeVar("F", bound=Callable[..., Any])
 
 

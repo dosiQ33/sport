@@ -19,7 +19,7 @@ DEBUG = ENVIRONMENT in ["development", "dev"]
 
 # Настройки retry для базы данных
 DB_RETRY_ATTEMPTS = int(os.getenv("DB_RETRY_ATTEMPTS", "3"))
-DB_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "1.0"))  # секунды
+DB_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "1.0"))
 DB_RETRY_BACKOFF_FACTOR = float(os.getenv("DB_RETRY_BACKOFF_FACTOR", "2.0"))
 
 # Настройки логирования

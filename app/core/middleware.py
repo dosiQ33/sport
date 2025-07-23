@@ -4,7 +4,6 @@ import uuid
 import os
 from typing import Callable
 from fastapi import Request, Response
-from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
@@ -154,7 +153,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
 
         if is_swagger_endpoint:
-            # Мягкий CSP для Swagger UI (работает и в dev, и в prod)
             csp = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
@@ -238,50 +236,6 @@ class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
             )
 
             raise
-
-
-class CORSCustomMiddleware(BaseHTTPMiddleware):
-    """
-    Кастомный CORS middleware с логированием
-    """
-
-    def __init__(self, app: ASGIApp, allow_origins: list = None):
-        super().__init__(app)
-        self.allow_origins = allow_origins or ["*"]
-
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        origin = request.headers.get("origin")
-
-        # Логируем CORS запросы
-        if origin:
-            logger.debug(
-                f"CORS request from origin: {origin}",
-                extra={
-                    "origin": origin,
-                    "method": request.method,
-                    "path": request.url.path,
-                    "category": "cors",
-                },
-            )
-
-        # Обрабатываем preflight запросы
-        if request.method == "OPTIONS":
-            response = Response()
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = (
-                "GET, POST, PUT, DELETE, OPTIONS"
-            )
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            response.headers["Access-Control-Max-Age"] = "86400"
-            return response
-
-        response = await call_next(request)
-
-        # Добавляем CORS headers
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Credentials"] = "false"
-
-        return response
 
 
 class ErrorTrackingMiddleware(BaseHTTPMiddleware):

@@ -15,8 +15,6 @@ async def create_initial_roles():
     """Create initial roles if they don't exist"""
     async with async_session() as session:
         try:
-            # Check if roles exist
-
             result = await session.execute(select(Role))
             existing_roles = result.scalars().all()
 

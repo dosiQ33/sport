@@ -23,13 +23,6 @@ from app.core.config import (
     LOG_FORMAT,
 )
 
-# Импортируем исключения в начале, так как они используются в debug endpoints
-from app.core.exceptions import (
-    NotFoundError,
-    BusinessLogicError,
-    DatabaseError,
-    ValidationError,
-)
 from app.staff.routers import users as staff_users
 from app.staff.routers import clubs as staff_clubs
 from app.staff.routers import sections as staff_sections
@@ -105,7 +98,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=APP_NAME,
-    description="A CRUD API with Telegram Web App authentication, centralized error handling, and comprehensive logging",
+    description="Tensu.kz",
     version=APP_VERSION,
     lifespan=lifespan,
     debug=DEBUG,
@@ -127,14 +120,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Настройка обработчиков ошибок (до добавления middleware и роутеров)
 setup_exception_handlers(app)
 
-# Настройка middleware
 setup_middleware(
     app,
     {
-        "slow_request_threshold": 2.0,  # Логировать запросы медленнее 2 секунд
+        "slow_request_threshold": 5.0,
         "exclude_paths": [
             "/health",
             "/docs",
@@ -161,189 +152,3 @@ app.include_router(student_users.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(staff_team.router, prefix="/api/v1")
 app.include_router(schedule.router, prefix="/api/v1")
-
-
-@app.get("/")
-async def root():
-    """Welcome endpoint"""
-    return {
-        "message": f"{APP_NAME} API",
-        "version": APP_VERSION,
-        "environment": "development" if DEBUG else "production",
-        "docs": "/docs",
-        "health": "/health",
-        "ssl": "enabled",
-        "features": [
-            "Centralized error handling",
-            "Database retry mechanism",
-            "Rate limiting",
-            "Telegram authentication",
-            "Team management",
-            "Groups management",
-            "Schedule & Lessons management",
-        ],
-    }
-
-
-@app.get("/health")
-async def health_check():
-    """
-    Health check endpoint with comprehensive system status
-    """
-    try:
-        # Проверяем соединение с базой данных
-        await db_manager.check_connection()
-        db_status = "healthy"
-        db_details = "Connection successful"
-    except Exception as e:
-        logger.error(f"Health check database error: {str(e)}")
-        db_status = "unhealthy"
-        db_details = "Connection failed"
-
-    # Получаем статистику ошибок
-    error_stats = error_tracker.get_stats()
-
-    # Определяем общий статус
-    overall_status = "healthy"
-    if db_status != "healthy":
-        overall_status = "unhealthy"
-    elif error_stats["total_errors"] > 100:  # Много ошибок
-        overall_status = "degraded"
-
-    health_data = {
-        "status": overall_status,
-        "service": APP_NAME.lower().replace(" ", "-"),
-        "version": APP_VERSION,
-        "environment": "development" if DEBUG else "production",
-        "timestamp": "2025-06-19T12:00:00Z",  # Можно заменить на datetime.now()
-        "checks": {
-            "database": {"status": db_status, "details": db_details},
-            "error_tracking": {
-                "status": "healthy" if error_stats["total_errors"] < 100 else "warning",
-                "total_errors": error_stats["total_errors"],
-                "unique_error_types": error_stats["unique_error_types"],
-            },
-        },
-        "ssl": "enabled",
-    }
-
-    # Логируем health check
-    logger.debug(
-        "Health check performed",
-        extra={
-            "overall_status": overall_status,
-            "db_status": db_status,
-            "total_errors": error_stats["total_errors"],
-        },
-    )
-
-    return health_data
-
-
-@app.get("/metrics")
-async def get_metrics():
-    """
-    Metrics endpoint for monitoring systems
-    """
-    error_stats = error_tracker.get_stats()
-
-    return {
-        "application": {
-            "name": APP_NAME,
-            "version": APP_VERSION,
-            "environment": "development" if DEBUG else "production",
-        },
-        "errors": error_stats,
-        "system": {
-            "uptime_info": "Available in future versions",
-            "memory_usage": "Available in future versions",
-        },
-    }
-
-
-@app.get("/debug/errors")
-async def get_error_details():
-    """
-    Detailed error information (only in debug mode)
-    """
-    if not DEBUG:
-        from app.core.exceptions import NotFoundError
-
-        raise NotFoundError("endpoint", "This endpoint is only available in debug mode")
-
-    error_stats = error_tracker.get_stats()
-
-    return {
-        "error_tracking": error_stats,
-        "recent_errors": error_stats.get("last_errors", []),
-        "environment": "development",
-        "warning": "This endpoint exposes sensitive information and is only available in development mode",
-    }
-
-
-@app.get("/debug/test-error")
-async def test_error_handling():
-    """Тестовый endpoint для проверки обработки ошибок (только в dev)"""
-    if not DEBUG:
-        raise NotFoundError("endpoint", "This endpoint is only available in debug mode")
-
-    # Тестируем разные типы ошибок
-    import random
-
-    error_type = random.choice(
-        ["app_exception", "database_error", "validation_error", "unexpected_error"]
-    )
-
-    logger.info(f"Testing error type: {error_type}")
-
-    if error_type == "app_exception":
-        raise BusinessLogicError(
-            "This is a test business logic error",
-            {"test_data": "sample_value", "error_category": "testing"},
-        )
-
-    elif error_type == "database_error":
-        raise DatabaseError(
-            "This is a test database error",
-            {"operation": "test_operation", "table": "test_table"},
-        )
-
-    elif error_type == "validation_error":
-        raise ValidationError(
-            "This is a test validation error",
-            {"field": "test_field", "value": "invalid_value"},
-        )
-
-    else:
-        raise Exception("This is a test unexpected error for testing purposes")
-
-
-@app.post("/debug/reset-error-stats")
-async def reset_error_statistics():
-    """
-    Сбросить статистику ошибок (только в debug режиме)
-    """
-    if not DEBUG:
-        from app.core.exceptions import NotFoundError
-
-        raise NotFoundError("endpoint", "This endpoint is only available in debug mode")
-
-    old_stats = error_tracker.get_stats()
-    error_tracker.reset_stats()
-
-    logger.info(
-        "Error statistics reset",
-        extra={
-            "previous_total_errors": old_stats["total_errors"],
-            "previous_unique_types": old_stats["unique_error_types"],
-        },
-    )
-
-    return {
-        "message": "Error statistics reset successfully",
-        "previous_stats": {
-            "total_errors": old_stats["total_errors"],
-            "unique_error_types": old_stats["unique_error_types"],
-        },
-        "current_stats": error_tracker.get_stats(),
-    }
