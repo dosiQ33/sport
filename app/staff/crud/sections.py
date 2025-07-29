@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -619,3 +619,45 @@ async def toggle_section_status(
     await session.commit()
     await session.refresh(db_section, ["club", "coach", "groups"])
     return db_section
+
+
+@db_operation
+async def get_sections_by_user_membership(
+    session: AsyncSession, user_id: int
+) -> List[Section]:
+    """
+    Get all sections from clubs where user has any role (owner, admin, coach)
+    """
+    if not user_id or user_id <= 0:
+        raise ValidationError("User ID must be positive")
+
+    # Получаем все клубы, где пользователь имеет любую роль
+    user_clubs_result = await session.execute(
+        select(UserRole.club_id)
+        .where(
+            and_(
+                UserRole.user_id == user_id,
+                UserRole.is_active == True,
+            )
+        )
+        .distinct()
+    )
+
+    club_ids = [club_id for club_id, in user_clubs_result.fetchall()]
+
+    if not club_ids:
+        return []
+
+    # Получаем все секции из этих клубов
+    result = await session.execute(
+        select(Section)
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+        )
+        .where(Section.club_id.in_(club_ids))
+        .order_by(Section.created_at.desc())
+    )
+
+    return result.scalars().all()

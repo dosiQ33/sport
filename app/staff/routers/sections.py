@@ -12,13 +12,13 @@ from app.staff.crud.sections import (
     get_section_by_id,
     get_sections_by_club,
     get_sections_by_coach,
+    get_sections_by_user_membership,
     get_sections_paginated,
     create_section,
     update_section,
     delete_section,
     get_section_statistics,
     toggle_section_status,
-    # Функции для проверки лимитов и прав
     check_user_sections_limit_before_create,
     check_user_club_section_permission,
     check_user_can_create_section_in_club,
@@ -249,13 +249,16 @@ async def get_my_sections(
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Get all sections coached by the authenticated user.
+    Get all sections where user is coach OR member of the club.
+
+    Returns sections from all clubs where user has any role (owner, admin, coach).
     """
     user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
     if not user_staff:
         raise NotFoundError("Staff user")
 
-    sections = await get_sections_by_coach(db, user_staff.id)
+    # Получаем секции на основе членства в клубах
+    sections = await get_sections_by_user_membership(db, user_staff.id)
     return sections
 
 
