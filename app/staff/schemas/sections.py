@@ -14,8 +14,8 @@ class SectionBase(BaseModel):
         None, max_length=1000, description="Section description"
     )
 
-    # Главный тренер секции (координатор)
-    coach_id: Optional[int] = Field(None, gt=0, description="Main coach ID")
+    # Главный тренер секции (координатор) - ОБЯЗАТЕЛЬНОЕ ПОЛЕ
+    coach_id: int = Field(..., gt=0, description="Coach ID is required")
     active: bool = Field(True, description="Whether section is active")
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
@@ -35,11 +35,13 @@ class SectionCreate(SectionBase):
 
 
 class SectionUpdate(BaseModel):
-    """Schema for updating section - all fields optional"""
+    """Schema for updating section - all fields optional except coach_id remains required if provided"""
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=1000)
-    coach_id: Optional[int] = Field(None, gt=0)
+    coach_id: Optional[int] = Field(
+        None, gt=0, description="Coach ID must be positive if provided"
+    )
     active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)

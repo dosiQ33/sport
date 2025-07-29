@@ -26,35 +26,28 @@ class Lesson(Base):
         index=True,
     )
 
-    # Планируемые параметры (из шаблона)
     planned_date = Column(Date, nullable=False)
     planned_start_time = Column(Time, nullable=False)
 
-    # Актуальные параметры (могут отличаться при переносах)
     actual_date = Column(Date, nullable=True)
     actual_start_time = Column(Time, nullable=True)
 
     duration_minutes = Column(Integer, default=90, nullable=False)
 
-    # Статус занятия
     status = Column(
         String(20),
         default="scheduled",
         nullable=False,
         index=True,
     )
-    # scheduled, completed, cancelled, rescheduled
 
-    # Тренер (может отличаться от основного тренера группы)
     coach_id = Column(
-        Integer, ForeignKey("user_staff.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("user_staff.id", ondelete="SET NULL"), nullable=False
     )
 
-    # Дополнительная информация
     location = Column(String(255), nullable=True)
     notes = Column(Text, nullable=True)
 
-    # Метаданные
     created_from_template = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -65,7 +58,6 @@ class Lesson(Base):
     group = relationship("Group", back_populates="lessons")
     coach = relationship("UserStaff", foreign_keys=[coach_id])
 
-    # Составные индексы для оптимизации запросов
     __table_args__ = (
         # Для поиска занятий группы по датам
         Index("ix_lessons_group_date", "group_id", "planned_date"),

@@ -27,10 +27,8 @@ class Group(Base):
 
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-
-    # Тренер группы (может отличаться от главного тренера секции)
     coach_id = Column(
-        Integer, ForeignKey("user_staff.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("user_staff.id", ondelete="SET NULL"), nullable=False
     )
 
     # Данные перенесенные из sections

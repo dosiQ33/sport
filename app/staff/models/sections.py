@@ -6,7 +6,6 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     DateTime,
-    JSON,
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -20,10 +19,9 @@ class Section(Base):
     club_id = Column(Integer, ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
 
     name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)  # Расширенное описание секции
+    description = Column(Text, nullable=True)
 
-    # Главный тренер секции (координатор)
-    coach_id = Column(Integer, ForeignKey("user_staff.id"), nullable=True)
+    coach_id = Column(Integer, ForeignKey("user_staff.id"), nullable=False)
 
     active = Column(Boolean, default=True)
 

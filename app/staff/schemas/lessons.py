@@ -2,8 +2,6 @@ from datetime import date, time, datetime
 from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from app.core.exceptions import ValidationError
-
 
 # Базовые схемы для занятий
 class LessonBase(BaseModel):
@@ -13,7 +11,7 @@ class LessonBase(BaseModel):
     planned_date: date = Field(..., description="Planned lesson date")
     planned_start_time: time = Field(..., description="Planned start time")
     duration_minutes: int = Field(90, ge=30, le=300, description="Duration in minutes")
-    coach_id: Optional[int] = Field(None, gt=0, description="Coach ID")
+    coach_id: int = Field(..., gt=0, description="Coach ID is required")
     location: Optional[str] = Field(None, max_length=255, description="Lesson location")
     notes: Optional[str] = Field(None, max_length=1000, description="Additional notes")
 
@@ -37,7 +35,9 @@ class LessonUpdate(BaseModel):
     status: Optional[Literal["scheduled", "completed", "cancelled", "rescheduled"]] = (
         None
     )
-    coach_id: Optional[int] = Field(None, gt=0)
+    coach_id: Optional[int] = Field(
+        None, gt=0, description="Coach ID must be positive if provided"
+    )
     location: Optional[str] = Field(None, max_length=255)
     notes: Optional[str] = Field(None, max_length=1000)
 

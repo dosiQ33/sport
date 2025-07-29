@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -22,8 +22,8 @@ class GroupBase(BaseModel):
     capacity: Optional[int] = Field(None, ge=1, le=100, description="Maximum capacity")
     level: Optional[str] = Field(None, description="Skill level")
 
-    # Тренер группы
-    coach_id: Optional[int] = Field(None, gt=0, description="Coach ID")
+    # Тренер группы - ОБЯЗАТЕЛЬНОЕ ПОЛЕ
+    coach_id: int = Field(..., gt=0, description="Coach ID is required")
 
     tags: list[str] = Field(default_factory=list, description="Group tags")
     active: bool = Field(True, description="Whether group is active")
@@ -57,7 +57,7 @@ class GroupCreate(GroupBase):
 
 
 class GroupUpdate(BaseModel):
-    """Schema for updating group - all fields optional"""
+    """Schema for updating group - all fields optional except coach_id if provided"""
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=1000)
@@ -67,7 +67,9 @@ class GroupUpdate(BaseModel):
     capacity: Optional[int] = Field(None, ge=1, le=100)
     level: Optional[str] = None
 
-    coach_id: Optional[int] = Field(None, gt=0)
+    coach_id: Optional[int] = Field(
+        None, gt=0, description="Coach ID must be positive if provided"
+    )
     tags: Optional[list[str]] = None
     active: Optional[bool] = None
 
