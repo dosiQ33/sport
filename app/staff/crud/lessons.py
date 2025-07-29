@@ -16,6 +16,7 @@ from app.staff.models.lessons import Lesson
 from app.staff.models.groups import Group
 from app.staff.models.sections import Section
 from app.staff.models.clubs import Club
+from app.staff.models.user_roles import UserRole
 from app.staff.models.users import UserStaff
 from app.staff.schemas.lessons import (
     LessonCreate,
@@ -210,11 +211,9 @@ async def create_lesson(
 
         # Verify coach if specified
         if lesson.coach_id:
-            coach_result = await session.execute(
-                select(UserStaff).where(UserStaff.id == lesson.coach_id)
+            await validate_coach_is_group_club_member(
+                session, lesson.coach_id, lesson.group_id
             )
-            if not coach_result.scalar_one_or_none():
-                raise NotFoundError("Coach", str(lesson.coach_id))
 
         # Create lesson
         lesson_data = lesson.model_dump()
@@ -263,11 +262,9 @@ async def update_lesson(
     update_data = lesson_update.model_dump(exclude_unset=True)
 
     if "coach_id" in update_data and update_data["coach_id"]:
-        coach_result = await session.execute(
-            select(UserStaff).where(UserStaff.id == update_data["coach_id"])
+        await validate_coach_is_group_club_member(
+            session, update_data["coach_id"], lesson.group_id
         )
-        if not coach_result.scalar_one_or_none():
-            raise NotFoundError("Coach", str(update_data["coach_id"]))
 
     # Apply updates
     for key, value in update_data.items():
@@ -572,3 +569,54 @@ async def bulk_update_lessons(
         await session.commit()
 
     return successful_updates, errors
+
+
+@db_operation
+async def validate_coach_is_group_club_member(
+    session: AsyncSession, coach_id: int, group_id: int
+) -> bool:
+    """
+    Проверить, что тренер является членом клуба группы
+    """
+    if coach_id <= 0:
+        raise ValidationError("Coach ID must be positive")
+
+    if group_id <= 0:
+        raise ValidationError("Group ID must be positive")
+
+    # Получаем группу с секцией и клубом
+    group_result = await session.execute(
+        select(Group).options(selectinload(Group.section)).where(Group.id == group_id)
+    )
+    group = group_result.scalar_one_or_none()
+    if not group:
+        raise NotFoundError("Group", str(group_id))
+
+    club_id = group.section.club_id
+
+    # Проверяем, что coach существует
+    coach_result = await session.execute(
+        select(UserStaff).where(UserStaff.id == coach_id)
+    )
+    coach = coach_result.scalar_one_or_none()
+    if not coach:
+        raise NotFoundError("Coach", str(coach_id))
+
+    # Проверяем, что coach имеет активную роль в клубе
+    role_result = await session.execute(
+        select(UserRole).where(
+            and_(
+                UserRole.user_id == coach_id,
+                UserRole.club_id == club_id,
+                UserRole.is_active == True,
+            )
+        )
+    )
+    user_role = role_result.scalar_one_or_none()
+
+    if not user_role:
+        raise ValidationError(
+            f"Coach must be a member of the club. User {coach_id} has no active role in club {club_id}"
+        )
+
+    return True

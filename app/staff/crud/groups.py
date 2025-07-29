@@ -168,18 +168,28 @@ async def get_groups_paginated(
 
 
 @db_operation
-async def validate_coach_belongs_to_club(
+async def validate_coach_is_club_member(
     session: AsyncSession, coach_id: int, club_id: int
 ) -> bool:
-    """Validate that coach belongs to the same club"""
+    """
+    Проверить, что тренер является членом клуба (имеет активную роль)
+    """
     if coach_id <= 0:
         raise ValidationError("Coach ID must be positive")
 
     if club_id <= 0:
         raise ValidationError("Club ID must be positive")
 
-    # Check if coach has any role in this club
-    result = await session.execute(
+    # Проверяем, что coach существует
+    coach_result = await session.execute(
+        select(UserStaff).where(UserStaff.id == coach_id)
+    )
+    coach = coach_result.scalar_one_or_none()
+    if not coach:
+        raise NotFoundError("Coach", str(coach_id))
+
+    # Проверяем, что coach имеет активную роль в этом клубе
+    role_result = await session.execute(
         select(UserRole).where(
             and_(
                 UserRole.user_id == coach_id,
@@ -188,8 +198,14 @@ async def validate_coach_belongs_to_club(
             )
         )
     )
-    user_role = result.scalar_one_or_none()
-    return user_role is not None
+    user_role = role_result.scalar_one_or_none()
+
+    if not user_role:
+        raise ValidationError(
+            f"Coach must be a member of the club. User {coach_id} has no active role in club {club_id}"
+        )
+
+    return True
 
 
 async def create_group(
@@ -242,12 +258,7 @@ async def create_group(
                 raise NotFoundError("Coach", str(group.coach_id))
 
             # Validate coach belongs to the same club
-            if not await validate_coach_belongs_to_club(
-                session, group.coach_id, club_id
-            ):
-                raise ValidationError(
-                    f"Coach must belong to the same club as the section"
-                )
+            await validate_coach_is_club_member(session, group.coach_id, club_id)
 
         # 6. Create group
         group_data = group.model_dump()
@@ -341,18 +352,7 @@ async def update_group(
         if not coach:
             raise NotFoundError("Coach", str(update_data["coach_id"]))
 
-        # Check coach belongs to club (inline, no separate function)
-        coach_role_result = await session.execute(
-            select(UserRole).where(
-                and_(
-                    UserRole.user_id == update_data["coach_id"],
-                    UserRole.club_id == club_id,
-                    UserRole.is_active == True,
-                )
-            )
-        )
-        if not coach_role_result.scalar_one_or_none():
-            raise ValidationError("Coach must belong to the same club as the section")
+        await validate_coach_is_club_member(session, update_data["coach_id"], club_id)
 
     # Check name conflicts
     if "name" in update_data and update_data["name"] != db_group.name:

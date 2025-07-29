@@ -399,17 +399,11 @@ async def create_section(
         if existing_section.scalar_one_or_none():
             raise DuplicateError("Section", "name", f"{section.name} in this club")
 
-        # 3. Проверяем существование тренера (если указан)
+        # 3. Проверяем существование тренера
         if section.coach_id:
-            if section.coach_id <= 0:
-                raise ValidationError("Coach ID must be positive")
-
-            coach_result = await session.execute(
-                select(UserStaff).where(UserStaff.id == section.coach_id)
+            await validate_coach_is_club_member(
+                session, section.coach_id, section.club_id
             )
-            coach = coach_result.scalar_one_or_none()
-            if not coach:
-                raise NotFoundError("Coach", str(section.coach_id))
 
         # 4. Создаем секцию
         section_data = section.model_dump()
@@ -466,15 +460,9 @@ async def update_section(
 
     # Verify coach exists if being updated
     if "coach_id" in update_data and update_data["coach_id"]:
-        if update_data["coach_id"] <= 0:
-            raise ValidationError("Coach ID must be positive")
-
-        coach_result = await session.execute(
-            select(UserStaff).where(UserStaff.id == update_data["coach_id"])
+        await validate_coach_is_club_member(
+            session, update_data["coach_id"], db_section.club_id
         )
-        coach = coach_result.scalar_one_or_none()
-        if not coach:
-            raise NotFoundError("Coach", str(update_data["coach_id"]))
 
     # Check if new name conflicts with existing sections in the same club
     if "name" in update_data and update_data["name"] != db_section.name:
@@ -661,3 +649,44 @@ async def get_sections_by_user_membership(
     )
 
     return result.scalars().all()
+
+
+@db_operation
+async def validate_coach_is_club_member(
+    session: AsyncSession, coach_id: int, club_id: int
+) -> bool:
+    """
+    Проверить, что тренер является членом клуба (имеет активную роль)
+    """
+    if not coach_id or coach_id <= 0:
+        raise ValidationError("Coach ID must be positive")
+
+    if not club_id or club_id <= 0:
+        raise ValidationError("Club ID must be positive")
+
+    # Проверяем, что coach существует
+    coach_result = await session.execute(
+        select(UserStaff).where(UserStaff.id == coach_id)
+    )
+    coach = coach_result.scalar_one_or_none()
+    if not coach:
+        raise NotFoundError("Coach", str(coach_id))
+
+    # Проверяем, что coach имеет активную роль в этом клубе
+    role_result = await session.execute(
+        select(UserRole).where(
+            and_(
+                UserRole.user_id == coach_id,
+                UserRole.club_id == club_id,
+                UserRole.is_active == True,
+            )
+        )
+    )
+    user_role = role_result.scalar_one_or_none()
+
+    if not user_role:
+        raise ValidationError(
+            f"Coach must be a member of the club. User {coach_id} has no active role in club {club_id}"
+        )
+
+    return True
