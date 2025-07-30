@@ -241,6 +241,39 @@ async def create_invitation_by_owner(
         if not club:
             raise NotFoundError("Club", f"Club {club_id} not found or you don't own it")
 
+        # Проверяем, что owner не приглашает сам себя
+        owner_result = await session.execute(
+            select(UserStaff.phone_number).where(UserStaff.id == owner_id)
+        )
+        owner_phone = owner_result.scalar_one_or_none()
+        if not owner_phone:
+            raise NotFoundError("Owner", str(owner_id))
+
+        if owner_phone == invitation_data.phone_number.strip():
+            raise ValidationError("Cannot create invitation for yourself")
+
+        # Проверяем, что приглашение не создается для уже существующего сотрудника клуба
+        invited_user_result = await session.execute(
+            select(UserStaff.id).where(
+                UserStaff.phone_number == invitation_data.phone_number.strip()
+            )
+        )
+        invited_user_id = invited_user_result.scalar_one_or_none()
+
+        if invited_user_id:
+            # Проверяем, не является ли приглашаемый уже сотрудником клуба
+            existing_role_result = await session.execute(
+                select(UserRole).where(
+                    and_(
+                        UserRole.user_id == invited_user_id,
+                        UserRole.club_id == club_id,
+                        UserRole.is_active == True,
+                    )
+                )
+            )
+            if existing_role_result.scalar_one_or_none():
+                raise ValidationError("User is already a staff member of this club")
+
         # Не-owner роли ДОЛЖНЫ иметь club_id
         if invitation_data.role == RoleType.owner:
             raise ValidationError("Owners cannot invite other owners")
