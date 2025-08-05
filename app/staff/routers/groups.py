@@ -172,7 +172,9 @@ async def get_my_groups(
         raise NotFoundError("Staff user")
 
     groups = await get_groups_by_coach(db, user_staff.id)
-    return groups
+
+    # Преобразуем в нужный формат с club_name
+    return [GroupRead.from_group(group) for group in groups]
 
 
 @router.get("/{group_id}", response_model=GroupRead)

@@ -28,7 +28,10 @@ async def get_group_by_id(session: AsyncSession, group_id: int):
 
     result = await session.execute(
         select(Group)
-        .options(selectinload(Group.section), selectinload(Group.coach))
+        .options(
+            selectinload(Group.section).selectinload(Section.club),
+            selectinload(Group.coach),
+        )
         .where(Group.id == group_id)
     )
     group = result.scalar_one_or_none()
@@ -59,7 +62,10 @@ async def get_groups_by_section(
 
     base_query = (
         select(Group)
-        .options(selectinload(Group.section), selectinload(Group.coach))
+        .options(
+            selectinload(Group.section).selectinload(Section.club),
+            selectinload(Group.coach),
+        )
         .where(Group.section_id == section_id)
     )
 
@@ -87,7 +93,10 @@ async def get_groups_by_coach(
 
     query = (
         select(Group)
-        .options(selectinload(Group.section), selectinload(Group.coach))
+        .options(
+            selectinload(Group.section).selectinload(Section.club),
+            selectinload(Group.coach),
+        )
         .where(Group.coach_id == coach_id)
         .offset(skip)
         .limit(limit)
@@ -117,7 +126,8 @@ async def get_groups_paginated(
         raise ValidationError("Limit must be between 1 and 100")
 
     base_query = select(Group).options(
-        selectinload(Group.section), selectinload(Group.coach)
+        selectinload(Group.section).selectinload(Section.club),
+        selectinload(Group.coach),
     )
     count_query = select(func.count(Group.id))
 

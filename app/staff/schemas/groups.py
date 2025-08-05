@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Optional
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from app.core.exceptions import ValidationError
 
@@ -100,8 +100,21 @@ class SectionInfo(BaseModel):
     id: int
     name: str
     club_id: int
+    club_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @classmethod
+    def from_section(cls, section):
+        """Create SectionInfo from Section model with club data"""
+        return cls(
+            id=section.id,
+            name=section.name,
+            club_id=section.club_id,
+            club_name=(
+                section.club.name if hasattr(section, "club") and section.club else None
+            ),
+        )
 
 
 class CoachInfo(BaseModel):
@@ -125,6 +138,35 @@ class GroupRead(GroupBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @classmethod
+    def from_group(cls, group):
+        """Create GroupRead from Group model"""
+        section_info = None
+        if group.section:
+            section_info = SectionInfo.from_section(group.section)
+
+        coach_info = None
+        if group.coach:
+            coach_info = CoachInfo.model_validate(group.coach)
+
+        return cls(
+            section_id=group.section_id,
+            name=group.name,
+            description=group.description,
+            schedule=group.schedule,
+            price=group.price,
+            capacity=group.capacity,
+            level=group.level,
+            coach_id=group.coach_id,
+            tags=group.tags,
+            active=group.active,
+            id=group.id,
+            section=section_info,
+            coach=coach_info,
+            created_at=group.created_at,
+            updated_at=group.updated_at,
+        )
 
 
 class GroupListResponse(BaseModel):
