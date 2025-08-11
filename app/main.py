@@ -108,6 +108,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://training-tracker-mini-app.vercel.app",
+        "https://tensu-students.vercel.app",
         "https://web.telegram.org",
         "https://k.web.telegram.org",
         "https://z.web.telegram.org",
