@@ -143,7 +143,7 @@ init:
 		echo "POSTGRES_DB=mydatabase" >> .env.dev; \
 		echo "POSTGRES_HOST=db" >> .env.dev; \
 		echo "POSTGRES_PORT=5432" >> .env.dev; \
-		echo "TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here" >> .env.dev; \
+		echo "TELEGRAM_BOT_TOKEN_STAFF=your_telegram_bot_token_here" >> .env.dev; \
 	fi
 	@if [ -f .env ] && [ ! -f .env.prod ]; then \
 		echo "📝 Переименование .env в .env.prod..."; \

@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_student_user
 from app.students.schemas.users import (
     UserStudentCreate,
     UserStudentUpdate,
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/students", tags=["Students"])
 async def create_new_user_student(
     request: Request,
     user: UserStudentCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
     db: AsyncSession = Depends(get_session),
 ):
     existing = await get_user_student_by_telegram_id(db, current_user.get("id"))
@@ -50,7 +50,7 @@ async def create_new_user_student(
 @limiter.limit("60/minute")
 async def get_current_user_student(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
     db: AsyncSession = Depends(get_session),
 ):
     """Get current authenticated student user profile."""
@@ -126,7 +126,7 @@ async def update_user_student_by_telegram_id(
     request: Request,
     user: UserStudentUpdate,
     db: AsyncSession = Depends(get_session),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
 ):
     db_user = await update_user_student(db, current_user.get("id"), user)
     if db_user is None:
@@ -140,7 +140,7 @@ async def update_user_student_preferences_route(
     request: Request,
     preferences: PreferencesUpdate,
     db: AsyncSession = Depends(get_session),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
 ):
     """Update student preferences (language, dark_mode, notifications)"""
     db_user = await update_user_student_preferences(

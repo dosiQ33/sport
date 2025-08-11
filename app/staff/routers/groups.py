@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, List
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_staff_user
 from app.core.exceptions import NotFoundError
 from app.staff.schemas.groups import (
     GroupCreate,
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/groups", tags=["Groups"])
 async def create_new_group(
     request: Request,
     group: GroupCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -161,7 +161,7 @@ async def get_coach_groups(
 @limiter.limit("20/minute")
 async def get_my_groups(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -200,7 +200,7 @@ async def update_group_details(
     request: Request,
     group_update: GroupUpdate,
     group_id: int = Path(..., description="Group ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -224,7 +224,7 @@ async def update_group_details(
 async def delete_group_route(
     request: Request,
     group_id: int = Path(..., description="Group ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -248,7 +248,7 @@ async def delete_group_route(
 async def toggle_group_status_route(
     request: Request,
     group_id: int = Path(..., description="Group ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """

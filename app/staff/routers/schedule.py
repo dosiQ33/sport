@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, List
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_staff_user
 from app.core.exceptions import NotFoundError, ValidationError
 from app.staff.schemas.schedule import (
     ScheduleTemplate,
@@ -90,7 +90,7 @@ async def update_group_schedule_template(
     request: Request,
     schedule_template: ScheduleTemplate,
     group_id: int = Path(..., description="Group ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -133,7 +133,7 @@ async def patch_group_schedule_template(
     request: Request,
     schedule_update: ScheduleTemplateUpdate,
     group_id: int = Path(..., description="Group ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -196,7 +196,7 @@ async def generate_lessons_from_template(
     request: Request,
     generation_request: GenerateLessonsRequest,
     group_id: int = Path(..., description="Group ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -239,7 +239,7 @@ async def regenerate_lessons_for_period(
     end_date: date = Query(..., description="End date for regeneration"),
     preserve_modifications: bool = Query(True, description="Preserve modified lessons"),
     group_id: int = Path(..., description="Group ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -287,7 +287,7 @@ async def regenerate_lessons_for_period(
 async def create_manual_lesson(
     request: Request,
     lesson: LessonCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -323,7 +323,7 @@ async def update_lesson_details(
     request: Request,
     lesson_update: LessonUpdate,
     lesson_id: int = Path(..., description="Lesson ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -343,7 +343,7 @@ async def reschedule_lesson_endpoint(
     request: Request,
     reschedule_data: LessonReschedule,
     lesson_id: int = Path(..., description="Lesson ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -363,7 +363,7 @@ async def cancel_lesson_endpoint(
     request: Request,
     cancel_data: LessonCancel,
     lesson_id: int = Path(..., description="Lesson ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -383,7 +383,7 @@ async def complete_lesson_endpoint(
     request: Request,
     complete_data: LessonComplete,
     lesson_id: int = Path(..., description="Lesson ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -404,7 +404,7 @@ async def complete_lesson_endpoint(
 async def delete_lesson_endpoint(
     request: Request,
     lesson_id: int = Path(..., description="Lesson ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -638,7 +638,7 @@ async def bulk_update_lessons_endpoint(
     request: Request,
     lesson_ids: List[int] = Query(..., description="List of lesson IDs to update"),
     updates: LessonUpdate = ...,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """

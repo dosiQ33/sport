@@ -13,7 +13,7 @@ from app.core.exceptions import (
 )
 from app.core.validations import clean_phone_number
 from app.students.models.users import UserStudent
-from app.core.config import TELEGRAM_BOT_TOKEN
+from app.core.config import TELEGRAM_BOT_TOKEN_STUDENT
 from app.core.telegram_auth import TelegramAuth
 from app.students.schemas.users import (
     UserStudentCreate,
@@ -22,10 +22,10 @@ from app.students.schemas.users import (
     UserStudentFilters,
 )
 
-if not TELEGRAM_BOT_TOKEN:
-    raise ValidationError("TELEGRAM_BOT_TOKEN is required")
+if not TELEGRAM_BOT_TOKEN_STUDENT:
+    raise ValidationError("TELEGRAM_BOT_TOKEN_STUDENT is required")
 
-telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN)
+telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN_STUDENT)
 
 
 @db_operation

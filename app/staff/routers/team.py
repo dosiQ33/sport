@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_staff_user
 from app.core.exceptions import NotFoundError
 from app.staff.schemas.team import TeamListResponse, TeamFilters, TeamStats, TeamMember
 from app.staff.models.roles import RoleType
@@ -37,7 +37,7 @@ async def get_team_members(
         None, gt=0, description="Show coaches of specific section"
     ),
     active_only: bool = Query(True, description="Show only active team members"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -113,7 +113,7 @@ async def get_team_members(
 @limiter.limit("20/minute")
 async def get_team_statistics(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -143,7 +143,7 @@ async def get_team_statistics(
 @limiter.limit("30/minute")
 async def get_my_clubs_context(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_staff_user
 from app.core.exceptions import NotFoundError, PermissionDeniedError
 from app.staff.schemas.invitations import (
     InvitationCreateByOwner,
@@ -40,7 +40,7 @@ async def create_club_staff_invitation(
     request: Request,
     club_id: int,
     invitation: InvitationCreateByOwner,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -70,7 +70,7 @@ async def create_club_staff_invitation(
 @limiter.limit("60/minute")
 async def get_my_pending_invitations(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -121,7 +121,7 @@ async def accept_pending_invitation(
     request: Request,
     invitation_id: int,
     invitation_accept: InvitationAccept,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -152,7 +152,7 @@ async def decline_pending_invitation(
     request: Request,
     invitation_id: int,
     invitation_decline: InvitationDecline,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -191,7 +191,7 @@ async def get_my_invitations(
     status: Optional[InvitationStatus] = Query(
         None, description="Filter by invitation status"
     ),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -225,7 +225,7 @@ async def get_club_invitations(
     status: Optional[InvitationStatus] = Query(
         None, description="Filter by invitation status"
     ),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -262,7 +262,7 @@ async def get_club_invitations(
 async def get_invitation(
     request: Request,
     invitation_id: int,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -297,7 +297,7 @@ async def get_invitation(
 async def delete_invitation_route(
     request: Request,
     invitation_id: int,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -317,7 +317,7 @@ async def delete_invitation_route(
 @limiter.limit("20/minute")
 async def get_my_invitation_stats(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """

@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_staff_user
 from app.core.exceptions import NotFoundError, PermissionDeniedError
 from app.staff.schemas.clubs import ClubCreate, ClubUpdate, ClubRead, ClubListResponse
 from app.staff.crud.users import get_user_staff_by_telegram_id
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/clubs", tags=["Clubs"])
 @limiter.limit("20/minute")
 async def check_club_creation_limits(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -48,7 +48,7 @@ async def check_club_creation_limits(
 async def create_new_club(
     request: Request,
     club: ClubCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -128,7 +128,7 @@ async def get_clubs_list(
 @limiter.limit("20/minute")
 async def get_my_clubs_with_roles(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -171,7 +171,7 @@ async def update_club_details(
     request: Request,
     club_id: int,
     club_update: ClubUpdate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -199,7 +199,7 @@ async def update_club_details(
 async def delete_club_route(
     request: Request,
     club_id: int,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -223,7 +223,7 @@ async def delete_club_route(
 async def check_club_permission(
     request: Request,
     club_id: int,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """

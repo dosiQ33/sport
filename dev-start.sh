@@ -12,9 +12,9 @@ POSTGRES_PASSWORD=postgres
 POSTGRES_DB=mydatabase
 POSTGRES_HOST=db
 POSTGRES_PORT=5432
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_BOT_TOKEN_STAFF=your_telegram_bot_token_here
 EOF
-    echo "⚠️  Пожалуйста, настройте TELEGRAM_BOT_TOKEN в .env.dev"
+    echo "⚠️  Пожалуйста, настройте TELEGRAM_BOT_TOKEN_STAFF в .env.dev"
 fi
 
 # Останавливаем production если запущен

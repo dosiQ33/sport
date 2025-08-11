@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, List
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_staff_user
 from app.core.exceptions import NotFoundError
 from app.staff.schemas.sections import SectionCreate, SectionUpdate, SectionRead
 from app.staff.crud.users import get_user_staff_by_telegram_id
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/sections", tags=["Sections"])
 async def check_sections_creation_limits(
     request: Request,
     club_id: Optional[int] = Query(None, description="Check limits for specific club"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -57,7 +57,7 @@ async def check_sections_creation_limits(
 async def check_club_section_permissions(
     request: Request,
     club_id: int = Path(..., description="Club ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -79,7 +79,7 @@ async def check_club_section_permissions(
 async def check_can_create_section_in_club(
     request: Request,
     club_id: int = Path(..., description="Club ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -102,7 +102,7 @@ async def check_can_create_section_in_club(
 @limiter.limit("20/minute")
 async def get_my_sections_stats(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -122,7 +122,7 @@ async def get_my_sections_stats(
 async def create_new_section(
     request: Request,
     section: SectionCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -245,7 +245,7 @@ async def get_coach_sections(
 @limiter.limit("20/minute")
 async def get_my_sections(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -285,7 +285,7 @@ async def update_section_details(
     request: Request,
     section_update: SectionUpdate,
     section_id: int = Path(..., description="Section ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -308,7 +308,7 @@ async def update_section_details(
 async def delete_section_route(
     request: Request,
     section_id: int = Path(..., description="Section ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -332,7 +332,7 @@ async def delete_section_route(
 async def toggle_section_status_route(
     request: Request,
     section_id: int = Path(..., description="Section ID"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
     db: AsyncSession = Depends(get_session),
 ):
     """

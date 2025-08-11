@@ -12,7 +12,6 @@ from app.core.exceptions import (
     TelegramAuthError,
 )
 from app.core.validations import clean_phone_number
-from app.staff.models.invitations import InvitationStatus
 from app.staff.crud.invitations import (
     get_pending_invitations_by_phone,
     mark_invitation_as_auto_accepted,
@@ -22,7 +21,7 @@ from app.staff.models.user_roles import UserRole
 from app.staff.models.users import UserStaff
 from app.staff.models.clubs import Club
 from app.staff.models.sections import Section
-from app.core.config import TELEGRAM_BOT_TOKEN
+from app.core.config import TELEGRAM_BOT_TOKEN_STAFF
 from app.core.telegram_auth import TelegramAuth
 from app.staff.schemas.users import (
     UserStaffCreate,
@@ -32,10 +31,10 @@ from app.staff.schemas.users import (
     UserLimitsUpdate,
 )
 
-if not TELEGRAM_BOT_TOKEN:
-    raise ValidationError("TELEGRAM_BOT_TOKEN is required")
+if not TELEGRAM_BOT_TOKEN_STAFF:
+    raise ValidationError("TELEGRAM_BOT_TOKEN_STAFF is required")
 
-telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN)
+telegram_auth = TelegramAuth(TELEGRAM_BOT_TOKEN_STAFF)
 
 
 @db_operation

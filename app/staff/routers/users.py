@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from app.core.database import get_session
 from app.core.limits import limiter
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_student_user
 from app.core.exceptions import NotFoundError, DuplicateError
 from app.staff.schemas.users import (
     UserStaffCreate,
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/staff", tags=["Staff"])
 async def create_new_user_staff(
     request: Request,
     user: UserStaffCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -56,7 +56,7 @@ async def create_new_user_staff(
 @limiter.limit("60/minute")
 async def get_current_user_staff(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -150,7 +150,7 @@ async def update_user_staff_by_telegram_id(
     request: Request,
     user: UserStaffUpdate,
     db: AsyncSession = Depends(get_session),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
 ):
     """
     Update current staff user profile.
@@ -169,7 +169,7 @@ async def update_user_staff_preferences_route(
     request: Request,
     preferences: UserStaffPreferencesUpdate,
     db: AsyncSession = Depends(get_session),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
 ):
     """
     Update user staff preferences (language, dark_mode, notifications).

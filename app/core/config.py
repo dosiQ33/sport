@@ -10,7 +10,8 @@ POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
 # Настройки Telegram
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN_STAFF = os.getenv("TELEGRAM_BOT_TOKEN_STAFF")
+TELEGRAM_BOT_TOKEN_STUDENT = os.getenv("TELEGRAM_BOT_TOKEN_STUDENT")
 SUPERADMIN_TOKEN = os.getenv("SUPERADMIN_TOKEN")
 
 # Настройки среды
@@ -36,8 +37,11 @@ def validate_config():
     """Валидация конфигурации при запуске"""
     errors = []
 
-    if not TELEGRAM_BOT_TOKEN:
-        errors.append("TELEGRAM_BOT_TOKEN is required")
+    if not TELEGRAM_BOT_TOKEN_STAFF:
+        errors.append("TELEGRAM_BOT_TOKEN_STAFF is required")
+
+    if not TELEGRAM_BOT_TOKEN_STUDENT:
+        errors.append("TELEGRAM_BOT_TOKEN_STUDENT is required")
 
     if not POSTGRES_HOST:
         errors.append("POSTGRES_HOST is required")
