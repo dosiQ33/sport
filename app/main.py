@@ -110,6 +110,7 @@ app.add_middleware(
         "https://training-tracker-mini-app.vercel.app",
         "https://tensu-students.vercel.app",
         "https://student.tensu.kz",
+        "https://staff.tensu.kz",
         "https://web.telegram.org",
         "https://k.web.telegram.org",
         "https://z.web.telegram.org",
