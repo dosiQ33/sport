@@ -7,6 +7,7 @@ from .groups import Group
 from .lessons import Lesson
 from .user_roles import UserRole
 from .invitations import Invitation
+from .tariffs import Tariff
 
 __all__ = [
     "Base",
@@ -18,4 +19,5 @@ __all__ = [
     "Lesson",
     "UserRole",
     "Invitation",
+    "Tariff",
 ]
