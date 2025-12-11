@@ -8,6 +8,7 @@ from .lessons import Lesson
 from .user_roles import UserRole
 from .invitations import Invitation
 from .tariffs import Tariff
+from .enrollments import StudentEnrollment, EnrollmentStatus
 
 __all__ = [
     "Base",
@@ -20,4 +21,6 @@ __all__ = [
     "UserRole",
     "Invitation",
     "Tariff",
+    "StudentEnrollment",
+    "EnrollmentStatus",
 ]
