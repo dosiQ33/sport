@@ -31,6 +31,7 @@ from app.staff.routers import superadmin
 from app.staff.routers import invitations
 from app.staff.routers import team as staff_team
 from app.staff.routers import tariffs as staff_tariffs
+from app.staff.routers import students as staff_students
 from app.students.routers import users as student_users
 from app.staff.routers import schedule
 
@@ -156,4 +157,5 @@ app.include_router(student_users.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(staff_team.router, prefix="/api/v1")
 app.include_router(staff_tariffs.router, prefix="/api/v1")
+app.include_router(staff_students.router, prefix="/api/v1")
 app.include_router(schedule.router, prefix="/api/v1")

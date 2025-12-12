@@ -54,6 +54,7 @@ class Tariff(Base):
 
     # Relations
     created_by = relationship("UserStaff", foreign_keys=[created_by_id])
+    enrollments = relationship("StudentEnrollment", back_populates="tariff")
 
     def __repr__(self):
         return f"<Tariff(id={self.id}, name='{self.name}', type='{self.type}', price={self.price})>"
