@@ -1,6 +1,6 @@
 """Staff Students CRUD - Operations for managing students from staff perspective"""
 import math
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from datetime import date, timedelta
 from sqlalchemy import and_, or_, func
 from sqlalchemy.future import select
@@ -15,7 +15,7 @@ from app.staff.models.sections import Section
 from app.staff.models.clubs import Club
 from app.staff.models.users import UserStaff
 from app.staff.models.user_roles import UserRole
-from app.staff.models.roles import RoleType
+from app.staff.models.roles import Role, RoleType
 from app.students.models.users import UserStudent
 from app.staff.schemas.students import StudentFilters, StudentRead, MembershipInfo
 
@@ -28,6 +28,7 @@ async def get_user_accessible_club_ids(
     """Get club IDs where user has specific roles (owner, admin, or coach)"""
     query = (
         select(UserRole.club_id)
+        .join(Role, UserRole.role_id == Role.id)
         .where(
             and_(
                 UserRole.user_id == user_id,
@@ -37,9 +38,9 @@ async def get_user_accessible_club_ids(
     )
     
     if role_filter:
-        role_conditions = [UserRole.role_id == RoleType[r] for r in role_filter if r in ['owner', 'admin', 'coach']]
-        if role_conditions:
-            query = query.where(or_(*role_conditions))
+        role_types = [RoleType(r) for r in role_filter if r in ['owner', 'admin', 'coach']]
+        if role_types:
+            query = query.where(Role.code.in_(role_types))
     
     result = await session.execute(query)
     return [row[0] for row in result.fetchall()]
@@ -48,10 +49,11 @@ async def get_user_accessible_club_ids(
 async def get_user_roles_in_clubs(
     session: AsyncSession,
     user_id: int
-) -> dict:
-    """Get user's roles mapped by club_id"""
+) -> Dict[int, RoleType]:
+    """Get user's roles mapped by club_id -> RoleType"""
     query = (
-        select(UserRole.club_id, UserRole.role_id)
+        select(UserRole.club_id, Role.code)
+        .join(Role, UserRole.role_id == Role.id)
         .where(
             and_(
                 UserRole.user_id == user_id,
