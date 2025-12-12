@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import db_operation
-from app.core.exceptions import NotFoundError, ValidationError, ForbiddenError
+from app.core.exceptions import NotFoundError, ValidationError, AuthorizationError
 from app.staff.models.enrollments import StudentEnrollment, EnrollmentStatus
 from app.staff.models.groups import Group
 from app.staff.models.sections import Section
@@ -320,11 +320,11 @@ async def create_enrollment(
     club_id = group.section.club_id
     
     if club_id not in user_roles:
-        raise ForbiddenError("You don't have access to this club")
+        raise AuthorizationError("You don't have access to this club")
     
     role = user_roles[club_id]
     if role == RoleType.coach and group.coach_id != staff_user_id:
-        raise ForbiddenError("Coaches can only manage students in their own groups")
+        raise AuthorizationError("Coaches can only manage students in their own groups")
     
     # Check if enrollment already exists
     existing_query = (
@@ -400,11 +400,11 @@ async def extend_membership(
     club_id = enrollment.group.section.club_id
     
     if club_id not in user_roles:
-        raise ForbiddenError("You don't have access to this club")
+        raise AuthorizationError("You don't have access to this club")
     
     role = user_roles[club_id]
     if role == RoleType.coach and enrollment.group.coach_id != staff_user_id:
-        raise ForbiddenError("Coaches can only manage students in their own groups")
+        raise AuthorizationError("Coaches can only manage students in their own groups")
     
     # Extend end date
     enrollment.end_date = enrollment.end_date + timedelta(days=days)
@@ -450,11 +450,11 @@ async def freeze_membership(
     club_id = enrollment.group.section.club_id
     
     if club_id not in user_roles:
-        raise ForbiddenError("You don't have access to this club")
+        raise AuthorizationError("You don't have access to this club")
     
     role = user_roles[club_id]
     if role == RoleType.coach and enrollment.group.coach_id != staff_user_id:
-        raise ForbiddenError("Coaches can only manage students in their own groups")
+        raise AuthorizationError("Coaches can only manage students in their own groups")
     
     # Check freeze days available
     available_freeze_days = enrollment.freeze_days_total - enrollment.freeze_days_used
@@ -503,7 +503,7 @@ async def unfreeze_membership(
     club_id = enrollment.group.section.club_id
     
     if club_id not in user_roles:
-        raise ForbiddenError("You don't have access to this club")
+        raise AuthorizationError("You don't have access to this club")
     
     # Calculate remaining freeze days and adjust end date
     today = date.today()

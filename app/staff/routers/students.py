@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, List
 from app.core.database import get_session
 from app.core.limits import limiter
 from app.core.dependencies import get_current_staff_user
-from app.core.exceptions import NotFoundError, ForbiddenError
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.staff.crud.users import get_user_staff_by_telegram_id
 from app.staff.crud.students import (
     get_students_for_staff,
