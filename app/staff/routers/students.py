@@ -1,5 +1,4 @@
 """Staff Students Router - Endpoints for staff to manage students"""
-import math
 from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional, List
