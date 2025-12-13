@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, delete
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,6 +14,7 @@ from app.core.exceptions import (
 )
 from app.staff.models.roles import Role, RoleType
 from app.staff.models.sections import Section
+from app.staff.models.section_coaches import SectionCoach
 from app.staff.models.groups import Group
 from app.staff.models.clubs import Club
 from app.staff.models.user_roles import UserRole
@@ -33,6 +34,7 @@ async def get_section_by_id(session: AsyncSession, section_id: int):
             selectinload(Section.club),
             selectinload(Section.coach),
             selectinload(Section.groups),
+            selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
         )
         .where(Section.id == section_id)
     )
@@ -68,6 +70,7 @@ async def get_sections_by_club(
             selectinload(Section.club),
             selectinload(Section.coach),
             selectinload(Section.groups),
+            selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
         )
         .where(Section.club_id == club_id)
     )
@@ -84,7 +87,7 @@ async def get_sections_by_club(
 async def get_sections_by_coach(
     session: AsyncSession, coach_id: int, skip: int = 0, limit: int = 100
 ):
-    """Get all sections coached by a specific user"""
+    """Get all sections coached by a specific user (primary or additional coach)"""
     if not coach_id or coach_id <= 0:
         raise ValidationError("Coach ID must be positive")
 
@@ -94,14 +97,25 @@ async def get_sections_by_coach(
     if limit <= 0 or limit > 200:
         raise ValidationError("Limit must be between 1 and 200")
 
+    # Get sections where user is primary coach OR in section_coaches
     query = (
         select(Section)
         .options(
             selectinload(Section.club),
             selectinload(Section.coach),
             selectinload(Section.groups),
+            selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
         )
-        .where(Section.coach_id == coach_id)
+        .outerjoin(SectionCoach, Section.id == SectionCoach.section_id)
+        .where(
+            and_(
+                Section.coach_id == coach_id,
+            ) | and_(
+                SectionCoach.coach_id == coach_id,
+                SectionCoach.is_active == True,
+            )
+        )
+        .distinct()
         .offset(skip)
         .limit(limit)
         .order_by(Section.created_at.desc())
@@ -119,6 +133,7 @@ async def get_sections_paginated(
     coach_id: Optional[int] = None,
     active_only: bool = True,
     name: Optional[str] = None,
+    level: Optional[str] = None,
 ):
     """Get paginated list of sections with optional filters"""
     if skip < 0:
@@ -131,6 +146,7 @@ async def get_sections_paginated(
         selectinload(Section.club),
         selectinload(Section.coach),
         selectinload(Section.groups),
+        selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
     )
     count_query = select(func.count(Section.id))
 
@@ -399,16 +415,35 @@ async def create_section(
         if existing_section.scalar_one_or_none():
             raise DuplicateError("Section", "name", f"{section.name} in this club")
 
-        # 3. Проверяем существование тренера
+        # 3. Проверяем существование главного тренера
         if section.coach_id:
             await validate_coach_is_club_member(
                 session, section.coach_id, section.club_id
             )
 
-        # 4. Создаем секцию
-        section_data = section.model_dump()
+        # 4. Собираем всех тренеров
+        all_coach_ids = set()
+        all_coach_ids.add(section.coach_id)  # Primary coach
+        if section.coach_ids:
+            for coach_id in section.coach_ids:
+                await validate_coach_is_club_member(session, coach_id, section.club_id)
+                all_coach_ids.add(coach_id)
+
+        # 5. Создаем секцию (без coach_ids поля, оно не в модели)
+        section_data = section.model_dump(exclude={"coach_ids"})
         db_section = Section(**section_data)
         session.add(db_section)
+        await session.flush()  # Get the section ID
+        
+        # 6. Создаем записи в section_coaches для всех тренеров
+        for coach_id in all_coach_ids:
+            section_coach = SectionCoach(
+                section_id=db_section.id,
+                coach_id=coach_id,
+                is_primary=(coach_id == section.coach_id),
+                is_active=True,
+            )
+            session.add(section_coach)
 
         return db_section
 
@@ -416,7 +451,7 @@ async def create_section(
     db_section = await with_db_transaction(session, _create_section_operation)
 
     # Загружаем связанные данные
-    await session.refresh(db_section, ["club", "coach", "groups"])
+    await session.refresh(db_section, ["club", "coach", "groups", "section_coaches"])
     return db_section
 
 
@@ -441,6 +476,7 @@ async def update_section(
             selectinload(Section.club),
             selectinload(Section.coach),
             selectinload(Section.groups),
+            selectinload(Section.section_coaches),
         )
         .where(Section.id == section_id)
     )
@@ -457,8 +493,11 @@ async def update_section(
         raise PermissionDeniedError("update", "section", permission_check["reason"])
 
     update_data = section_update.model_dump(exclude_unset=True)
+    
+    # Extract coach_ids before processing other updates
+    coach_ids = update_data.pop("coach_ids", None)
 
-    # Verify coach exists if being updated
+    # Verify primary coach exists if being updated
     if "coach_id" in update_data and update_data["coach_id"]:
         await validate_coach_is_club_member(
             session, update_data["coach_id"], db_section.club_id
@@ -480,12 +519,39 @@ async def update_section(
                 "Section", "name", f"{update_data['name']} in this club"
             )
 
-    # Применяем изменения
+    # Применяем изменения к основным полям
     for key, value in update_data.items():
         setattr(db_section, key, value)
+    
+    # Обновляем список тренеров если передан coach_ids
+    if coach_ids is not None:
+        # Validate all coaches are club members
+        for coach_id in coach_ids:
+            await validate_coach_is_club_member(session, coach_id, db_section.club_id)
+        
+        # Удаляем старые записи section_coaches
+        await session.execute(
+            delete(SectionCoach).where(SectionCoach.section_id == section_id)
+        )
+        
+        # Определяем primary coach
+        primary_coach_id = update_data.get("coach_id") or db_section.coach_id
+        
+        # Создаем новые записи
+        all_coach_ids = set(coach_ids)
+        all_coach_ids.add(primary_coach_id)  # Ensure primary is included
+        
+        for coach_id in all_coach_ids:
+            section_coach = SectionCoach(
+                section_id=section_id,
+                coach_id=coach_id,
+                is_primary=(coach_id == primary_coach_id),
+                is_active=True,
+            )
+            session.add(section_coach)
 
     await session.commit()
-    await session.refresh(db_section, ["club", "coach", "groups", "updated_at"])
+    await session.refresh(db_section, ["club", "coach", "groups", "section_coaches", "updated_at"])
 
     return db_section
 
@@ -643,6 +709,7 @@ async def get_sections_by_user_membership(
             selectinload(Section.club),
             selectinload(Section.coach),
             selectinload(Section.groups),
+            selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
         )
         .where(Section.club_id.in_(club_ids))
         .order_by(Section.created_at.desc())
