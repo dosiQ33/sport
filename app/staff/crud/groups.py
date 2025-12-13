@@ -1,5 +1,5 @@
-from typing import Optional
-from sqlalchemy import and_, func
+from typing import Optional, List
+from sqlalchemy import and_, func, delete
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,7 @@ from app.core.exceptions import (
     PermissionDeniedError,
 )
 from app.staff.models.groups import Group
+from app.staff.models.group_coaches import GroupCoach
 from app.staff.models.sections import Section
 from app.staff.models.clubs import Club
 from app.staff.models.users import UserStaff
@@ -31,6 +32,7 @@ async def get_group_by_id(session: AsyncSession, group_id: int):
         .options(
             selectinload(Group.section).selectinload(Section.club),
             selectinload(Group.coach),
+            selectinload(Group.group_coaches).selectinload(GroupCoach.coach),
         )
         .where(Group.id == group_id)
     )
@@ -65,6 +67,7 @@ async def get_groups_by_section(
         .options(
             selectinload(Group.section).selectinload(Section.club),
             selectinload(Group.coach),
+            selectinload(Group.group_coaches).selectinload(GroupCoach.coach),
         )
         .where(Group.section_id == section_id)
     )
@@ -81,7 +84,7 @@ async def get_groups_by_section(
 async def get_groups_by_coach(
     session: AsyncSession, coach_id: int, skip: int = 0, limit: int = 100
 ):
-    """Get all groups coached by a specific user"""
+    """Get all groups coached by a specific user (primary or additional coach)"""
     if coach_id <= 0:
         raise ValidationError("Coach ID must be positive")
 
@@ -91,13 +94,24 @@ async def get_groups_by_coach(
     if limit <= 0 or limit > 200:
         raise ValidationError("Limit must be between 1 and 200")
 
+    # Get groups where user is primary coach OR in group_coaches
     query = (
         select(Group)
         .options(
             selectinload(Group.section).selectinload(Section.club),
             selectinload(Group.coach),
+            selectinload(Group.group_coaches).selectinload(GroupCoach.coach),
         )
-        .where(Group.coach_id == coach_id)
+        .outerjoin(GroupCoach, Group.id == GroupCoach.group_id)
+        .where(
+            and_(
+                Group.coach_id == coach_id,
+            ) | and_(
+                GroupCoach.coach_id == coach_id,
+                GroupCoach.is_active == True,
+            )
+        )
+        .distinct()
         .offset(skip)
         .limit(limit)
         .order_by(Group.created_at.desc())
@@ -128,6 +142,7 @@ async def get_groups_paginated(
     base_query = select(Group).options(
         selectinload(Group.section).selectinload(Section.club),
         selectinload(Group.coach),
+        selectinload(Group.group_coaches).selectinload(GroupCoach.coach),
     )
     count_query = select(func.count(Group.id))
 
@@ -257,23 +272,39 @@ async def create_group(
         if existing_group.scalar_one_or_none():
             raise DuplicateError("Group", "name", f"{group.name} in this section")
 
-        # 4. Validate coach if specified
+        # 4. Validate primary coach if specified
         if group.coach_id:
-            # Check coach exists
             coach_result = await session.execute(
                 select(UserStaff).where(UserStaff.id == group.coach_id)
             )
             coach = coach_result.scalar_one_or_none()
             if not coach:
                 raise NotFoundError("Coach", str(group.coach_id))
-
-            # Validate coach belongs to the same club
             await validate_coach_is_club_member(session, group.coach_id, club_id)
 
-        # 6. Create group
-        group_data = group.model_dump()
+        # 5. Collect all coach IDs
+        all_coach_ids = set()
+        all_coach_ids.add(group.coach_id)  # Primary coach
+        if hasattr(group, 'coach_ids') and group.coach_ids:
+            for coach_id in group.coach_ids:
+                await validate_coach_is_club_member(session, coach_id, club_id)
+                all_coach_ids.add(coach_id)
+
+        # 6. Create group (exclude coach_ids as it's not in model)
+        group_data = group.model_dump(exclude={'coach_ids'} if hasattr(group, 'coach_ids') else set())
         db_group = Group(**group_data)
         session.add(db_group)
+        await session.flush()  # Get the group ID
+
+        # 7. Create group_coaches records for all coaches
+        for coach_id in all_coach_ids:
+            group_coach = GroupCoach(
+                group_id=db_group.id,
+                coach_id=coach_id,
+                is_primary=(coach_id == group.coach_id),
+                is_active=True,
+            )
+            session.add(group_coach)
 
         return db_group
 
@@ -281,7 +312,7 @@ async def create_group(
     db_group = await with_db_transaction(session, _create_group_operation)
 
     # Load related data
-    await session.refresh(db_group, ["section", "coach"])
+    await session.refresh(db_group, ["section", "coach", "group_coaches"])
     return db_group
 
 
@@ -302,7 +333,11 @@ async def update_group(
     # Get group with section info
     group_result = await session.execute(
         select(Group)
-        .options(selectinload(Group.section), selectinload(Group.coach))
+        .options(
+            selectinload(Group.section),
+            selectinload(Group.coach),
+            selectinload(Group.group_coaches),
+        )
         .where(Group.id == group_id)
     )
     db_group = group_result.scalar_one_or_none()
@@ -312,7 +347,6 @@ async def update_group(
 
     club_id = db_group.section.club_id
 
-    # FIXED: Direct permission check without problematic async function calls
     # Check if user is club owner
     club_result = await session.execute(select(Club).where(Club.id == club_id))
     club = club_result.scalar_one_or_none()
@@ -348,13 +382,15 @@ async def update_group(
         )
 
     update_data = group_update.model_dump(exclude_unset=True)
+    
+    # Extract coach_ids before processing other updates
+    coach_ids = update_data.pop("coach_ids", None)
 
-    # FIXED: Inline coach validation without separate async function
+    # Validate primary coach if being updated
     if "coach_id" in update_data and update_data["coach_id"]:
         if update_data["coach_id"] <= 0:
             raise ValidationError("Coach ID must be positive")
 
-        # Check coach exists
         coach_result = await session.execute(
             select(UserStaff).where(UserStaff.id == update_data["coach_id"])
         )
@@ -380,12 +416,39 @@ async def update_group(
                 "Group", "name", f"{update_data['name']} in this section"
             )
 
-    # Apply changes
+    # Apply changes to main fields
     for key, value in update_data.items():
         setattr(db_group, key, value)
+    
+    # Update coaches if coach_ids is provided
+    if coach_ids is not None:
+        # Validate all coaches are club members
+        for coach_id in coach_ids:
+            await validate_coach_is_club_member(session, coach_id, club_id)
+        
+        # Delete old group_coaches entries
+        await session.execute(
+            delete(GroupCoach).where(GroupCoach.group_id == group_id)
+        )
+        
+        # Determine primary coach
+        primary_coach_id = update_data.get("coach_id") or db_group.coach_id
+        
+        # Create new entries
+        all_coach_ids = set(coach_ids)
+        all_coach_ids.add(primary_coach_id)  # Ensure primary is included
+        
+        for coach_id in all_coach_ids:
+            group_coach = GroupCoach(
+                group_id=group_id,
+                coach_id=coach_id,
+                is_primary=(coach_id == primary_coach_id),
+                is_active=True,
+            )
+            session.add(group_coach)
 
     await session.commit()
-    await session.refresh(db_group, ["section", "coach", "updated_at"])
+    await session.refresh(db_group, ["section", "coach", "group_coaches", "updated_at"])
 
     return db_group
 

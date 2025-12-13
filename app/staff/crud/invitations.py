@@ -341,7 +341,9 @@ async def accept_invitation(
         if invitation.expires_at <= datetime.now(timezone.utc):
             raise BusinessLogicError("Invitation has expired")
 
-        # Проверяем существующую роль пользователя в клубе
+        # Проверяем существующую роль пользователя в клубе и обрабатываем соответственно
+        role_handled = False
+        
         if invitation.club_id:
             existing_role_result = await session.execute(
                 select(UserRole).where(
@@ -370,41 +372,32 @@ async def accept_invitation(
                 existing_role.role_id = role.id
                 existing_role.joined_at = datetime.now(timezone.utc)
                 existing_role.left_at = None
+                role_handled = True
 
         # Обновляем статус приглашения
         invitation.status = InvitationStatus.ACCEPTED
         invitation.responded_by_id = user_id
         invitation.responded_at = datetime.now(timezone.utc)
 
-        # Создаем запись в user_roles если есть club_id и не было существующей роли
-        if invitation.club_id:
-            # Check if we already handled an existing role above
-            existing_role_check = await session.execute(
-                select(UserRole).where(
-                    and_(
-                        UserRole.user_id == user_id,
-                        UserRole.club_id == invitation.club_id,
-                    )
-                )
+        # Создаем запись в user_roles если есть club_id и роль еще не была обработана
+        if invitation.club_id and not role_handled:
+            # No existing role, create new one
+            # Получаем роль
+            role_result = await session.execute(
+                select(Role).where(Role.code == invitation.role)
             )
-            if not existing_role_check.scalar_one_or_none():
-                # No existing role, create new one
-                # Получаем роль
-                role_result = await session.execute(
-                    select(Role).where(Role.code == invitation.role)
-                )
-                role = role_result.scalar_one_or_none()
-                if not role:
-                    raise NotFoundError("Role", invitation.role.value)
+            role = role_result.scalar_one_or_none()
+            if not role:
+                raise NotFoundError("Role", invitation.role.value)
 
-                # Создаем запись о роли в клубе
-                user_role = UserRole(
-                    user_id=user_id,
-                    club_id=invitation.club_id,
-                    role_id=role.id,
-                    is_active=True,
-                )
-                session.add(user_role)
+            # Создаем запись о роли в клубе
+            user_role = UserRole(
+                user_id=user_id,
+                club_id=invitation.club_id,
+                role_id=role.id,
+                is_active=True,
+            )
+            session.add(user_role)
 
         return invitation
 
