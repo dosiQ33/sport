@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, cast, String
 
 from app.core.exceptions import NotFoundError, PermissionDeniedError, ValidationError
 from app.staff.models.tariffs import Tariff
@@ -57,13 +57,15 @@ async def get_tariffs_by_user(
         return []
 
     # Find tariffs that include any of user's clubs
+    # Use PostgreSQL @> (contains) operator for JSON array containment
     result = await db.execute(
         select(Tariff)
         .options(selectinload(Tariff.created_by))
         .where(
             or_(
                 # Check if any club_id in tariff.club_ids matches user's clubs
-                *[Tariff.club_ids.contains([club_id]) for club_id in user_club_ids]
+                # Cast JSON to text and use LIKE for compatibility
+                *[cast(Tariff.club_ids, String).like(f'%{club_id}%') for club_id in user_club_ids]
             )
         )
         .order_by(Tariff.created_at.desc())
@@ -93,8 +95,9 @@ async def get_tariffs_paginated(
     conditions = []
 
     if club_id:
-        conditions.append(Tariff.club_ids.contains([club_id]))
-
+        # Cast JSON to text and use LIKE for PostgreSQL compatibility
+        conditions.append(cast(Tariff.club_ids, String).like(f'%{club_id}%'))
+    
     if payment_type:
         conditions.append(Tariff.payment_type == payment_type)
 
