@@ -49,3 +49,4 @@ class GroupCoach(Base):
     
     def __repr__(self):
         return f"<GroupCoach(group_id={self.group_id}, coach_id={self.coach_id})>"
+

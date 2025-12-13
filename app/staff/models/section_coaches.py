@@ -49,3 +49,4 @@ class SectionCoach(Base):
     
     def __repr__(self):
         return f"<SectionCoach(section_id={self.section_id}, coach_id={self.coach_id})>"
+

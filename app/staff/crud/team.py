@@ -1,12 +1,12 @@
 from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, update, delete
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import db_operation
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ValidationError, AuthorizationError, NotFoundError
 from app.staff.models.users import UserStaff
 from app.staff.models.clubs import Club
 from app.staff.models.sections import Section
@@ -295,4 +295,192 @@ async def get_team_stats(session: AsyncSession, user_id: int) -> Dict[str, Any]:
         "by_role": by_role,
         "by_club": by_club,
         "active_members": total_members,  # Поскольку мы считаем только активных
+    }
+
+
+@db_operation
+async def get_user_role_in_club(
+    session: AsyncSession, user_id: int, club_id: int
+) -> Optional[RoleType]:
+    """Get user's role in a specific club"""
+    result = await session.execute(
+        select(Role.code)
+        .select_from(UserRole)
+        .join(Role, UserRole.role_id == Role.id)
+        .where(
+            and_(
+                UserRole.user_id == user_id,
+                UserRole.club_id == club_id,
+                UserRole.is_active == True,
+            )
+        )
+    )
+    row = result.first()
+    return row[0] if row else None
+
+
+@db_operation
+async def check_can_manage_staff(
+    session: AsyncSession,
+    current_user_id: int,
+    target_user_id: int,
+    club_id: int,
+) -> Dict[str, Any]:
+    """
+    Check if current user can manage target user in a club.
+    Returns info about both users' roles.
+    """
+    # Get current user's role in the club
+    current_user_role = await get_user_role_in_club(session, current_user_id, club_id)
+    if not current_user_role:
+        raise AuthorizationError("You don't have access to this club")
+
+    # Get target user's role in the club
+    target_user_role = await get_user_role_in_club(session, target_user_id, club_id)
+    if not target_user_role:
+        raise NotFoundError("User", f"User {target_user_id} is not a member of this club")
+
+    # Check permissions
+    can_delete = False
+    can_change_role = False
+
+    if current_user_role == RoleType.owner:
+        # Owner can manage anyone except themselves
+        if current_user_id != target_user_id:
+            can_delete = target_user_role != RoleType.owner  # Can't delete other owners
+            can_change_role = target_user_role != RoleType.owner  # Can't change owner role
+    elif current_user_role == RoleType.admin:
+        # Admin can only manage coaches
+        if target_user_role == RoleType.coach:
+            can_delete = True
+            can_change_role = False  # Admins can't promote coaches to admins
+
+    return {
+        "current_user_role": current_user_role.value,
+        "target_user_role": target_user_role.value,
+        "can_delete": can_delete,
+        "can_change_role": can_change_role,
+    }
+
+
+@db_operation
+async def remove_staff_from_club(
+    session: AsyncSession,
+    current_user_id: int,
+    target_user_id: int,
+    club_id: int,
+) -> Dict[str, Any]:
+    """
+    Remove a staff member from a club.
+    Owner can remove anyone (except other owners).
+    Admin can only remove coaches.
+    """
+    # Check permissions
+    permissions = await check_can_manage_staff(
+        session, current_user_id, target_user_id, club_id
+    )
+
+    if not permissions["can_delete"]:
+        raise AuthorizationError(
+            f"You don't have permission to remove this {permissions['target_user_role']}"
+        )
+
+    # Soft delete - set is_active to False and set left_at
+    await session.execute(
+        update(UserRole)
+        .where(
+            and_(
+                UserRole.user_id == target_user_id,
+                UserRole.club_id == club_id,
+                UserRole.is_active == True,
+            )
+        )
+        .values(is_active=False, left_at=func.now())
+    )
+
+    # Also remove coach from any sections in this club
+    await session.execute(
+        update(Section)
+        .where(
+            and_(
+                Section.club_id == club_id,
+                Section.coach_id == target_user_id,
+            )
+        )
+        .values(coach_id=None)
+    )
+
+    await session.commit()
+
+    return {
+        "success": True,
+        "message": f"Staff member removed from club",
+        "removed_user_id": target_user_id,
+        "club_id": club_id,
+    }
+
+
+@db_operation
+async def change_staff_role(
+    session: AsyncSession,
+    current_user_id: int,
+    target_user_id: int,
+    club_id: int,
+    new_role: RoleType,
+) -> Dict[str, Any]:
+    """
+    Change a staff member's role in a club.
+    Only owner can change roles.
+    Owner can promote coach to admin or demote admin to coach.
+    Cannot change owner role.
+    """
+    # Check permissions
+    permissions = await check_can_manage_staff(
+        session, current_user_id, target_user_id, club_id
+    )
+
+    if not permissions["can_change_role"]:
+        raise AuthorizationError(
+            f"You don't have permission to change role for this {permissions['target_user_role']}"
+        )
+
+    # Validate new role
+    if new_role == RoleType.owner:
+        raise ValidationError("Cannot assign owner role through this endpoint")
+
+    if new_role not in [RoleType.admin, RoleType.coach]:
+        raise ValidationError("Role must be 'admin' or 'coach'")
+
+    # Get the role ID for the new role
+    role_result = await session.execute(
+        select(Role.id).where(Role.code == new_role)
+    )
+    role_row = role_result.first()
+    if not role_row:
+        raise NotFoundError("Role", f"Role {new_role.value} not found")
+
+    new_role_id = role_row[0]
+
+    # Update the role
+    await session.execute(
+        update(UserRole)
+        .where(
+            and_(
+                UserRole.user_id == target_user_id,
+                UserRole.club_id == club_id,
+                UserRole.is_active == True,
+            )
+        )
+        .values(role_id=new_role_id)
+    )
+
+    await session.commit()
+
+    return {
+        "success": True,
+        "message": f"Role changed to {new_role.value}",
+        "user_id": target_user_id,
+        "club_id": club_id,
+        "new_role": new_role.value,
+        "old_role": permissions["target_user_role"],
     }
