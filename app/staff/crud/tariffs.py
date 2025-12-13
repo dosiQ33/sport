@@ -29,16 +29,18 @@ async def get_tariff_by_id(db: AsyncSession, tariff_id: int) -> Tariff:
 
 async def get_user_club_ids(db: AsyncSession, user_id: int) -> List[int]:
     """Get all club IDs where user has owner or admin role"""
-    from app.staff.models.roles import RoleType
+    from app.staff.models.roles import Role, RoleType
     
     result = await db.execute(
-        select(UserRole.club_id).where(
+        select(UserRole.club_id)
+        .join(Role, UserRole.role_id == Role.id)
+        .where(
             and_(
                 UserRole.user_id == user_id,
                 UserRole.is_active == True,
                 or_(
-                    UserRole.role == RoleType.owner,
-                    UserRole.role == RoleType.admin
+                    Role.code == RoleType.owner,
+                    Role.code == RoleType.admin
                 )
             )
         )
