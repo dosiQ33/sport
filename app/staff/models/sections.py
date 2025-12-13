@@ -32,8 +32,15 @@ class Section(Base):
 
     # Relations
     club = relationship("Club", back_populates="sections")
-    coach = relationship("UserStaff", foreign_keys=[coach_id])
+    # Primary coach (legacy FK relationship)
+    coach = relationship("UserStaff", foreign_keys=[coach_id], back_populates="primary_sections")
     groups = relationship("Group", back_populates="section", cascade="all, delete")
+    # Multiple coaches relationship
+    section_coaches = relationship(
+        "SectionCoach",
+        back_populates="section",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Section(id={self.id}, name='{self.name}', club_id={self.club_id})>"

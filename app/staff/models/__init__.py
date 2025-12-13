@@ -9,6 +9,8 @@ from .user_roles import UserRole
 from .invitations import Invitation
 from .tariffs import Tariff
 from .enrollments import StudentEnrollment, EnrollmentStatus
+from .section_coaches import SectionCoach
+from .group_coaches import GroupCoach
 
 __all__ = [
     "Base",
@@ -23,4 +25,6 @@ __all__ = [
     "Tariff",
     "StudentEnrollment",
     "EnrollmentStatus",
+    "SectionCoach",
+    "GroupCoach",
 ]
