@@ -27,6 +27,14 @@ class Club(Base):
     phone = Column(String(32), nullable=True)
     telegram_url = Column(String(255), nullable=True)
     instagram_url = Column(String(255), nullable=True)
+    whatsapp_url = Column(String(255), nullable=True)
+    
+    # Working hours (e.g., "09:00-21:00" or {"mon": "09:00-21:00", "tue": "09:00-21:00", ...})
+    working_hours_start = Column(String(5), nullable=True, default="09:00")
+    working_hours_end = Column(String(5), nullable=True, default="21:00")
+    
+    # Tags for categorization
+    tags = Column(JSON, nullable=True, default=list)
 
     owner_id = Column(Integer, ForeignKey("user_staff.id"), nullable=True)
 
@@ -39,3 +47,10 @@ class Club(Base):
     sections = relationship("Section", back_populates="club", cascade="all, delete")
     user_roles = relationship("UserRole", back_populates="club", cascade="all, delete")
     owner = relationship("UserStaff", foreign_keys=[owner_id])
+    
+    @property
+    def working_hours(self) -> str:
+        """Returns formatted working hours string"""
+        start = self.working_hours_start or "09:00"
+        end = self.working_hours_end or "21:00"
+        return f"{start} - {end}"
