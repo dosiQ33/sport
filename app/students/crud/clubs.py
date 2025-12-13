@@ -1,10 +1,8 @@
 """Student Clubs CRUD - Operations for viewing available clubs"""
 import math
 from typing import List, Tuple, Optional
-from datetime import date
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, text
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import db_operation
@@ -153,12 +151,13 @@ async def get_club_details(
         for s in sections_data
     ]
     
-    # Get tariffs
+    # Get tariffs - use PostgreSQL JSONB @> operator to check if club_id is in the JSON array
+    # Cast JSON to JSONB and use the contains operator with bound parameter
     tariffs_query = (
         select(Tariff)
         .where(
             and_(
-                Tariff.club_ids.contains([club_id]),
+                text("club_ids::jsonb @> :club_id_json::jsonb").bindparams(club_id_json=f'[{club_id}]'),
                 Tariff.active == True
             )
         )
