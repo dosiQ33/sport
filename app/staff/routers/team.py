@@ -1,5 +1,6 @@
 import math
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional
 
@@ -14,7 +15,14 @@ from app.staff.crud.team import (
     get_team_members_paginated,
     get_user_clubs_info,
     get_team_stats,
+    check_can_manage_staff,
+    remove_staff_from_club,
+    change_staff_role,
 )
+
+
+class ChangeRoleRequest(BaseModel):
+    new_role: RoleType
 
 router = APIRouter(prefix="/team", tags=["Team"])
 
@@ -170,3 +178,88 @@ async def get_my_clubs_context(
         "total_clubs": len(clubs_info),
         "message": "These are the clubs where you work and can see team members",
     }
+
+
+@router.get("/{club_id}/member/{user_id}/permissions")
+@limiter.limit("30/minute")
+async def check_member_permissions(
+    request: Request,
+    club_id: int,
+    user_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Check what permissions current user has for managing a team member in a club.
+    
+    Returns:
+    - current_user_role: Current user's role in the club
+    - target_user_role: Target user's role in the club
+    - can_delete: Whether current user can remove target user from club
+    - can_change_role: Whether current user can change target user's role
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise NotFoundError("Staff user", "Please register as staff first")
+
+    permissions = await check_can_manage_staff(db, user_staff.id, user_id, club_id)
+    return permissions
+
+
+@router.delete("/{club_id}/member/{user_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def remove_team_member(
+    request: Request,
+    club_id: int,
+    user_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Remove a team member from a club.
+    
+    **Permissions:**
+    - Owner can remove admins and coaches
+    - Admin can only remove coaches
+    - Cannot remove yourself
+    - Cannot remove other owners
+    
+    The user will be soft-deleted (is_active=False) and their coach assignments in sections will be cleared.
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise NotFoundError("Staff user", "Please register as staff first")
+
+    result = await remove_staff_from_club(db, user_staff.id, user_id, club_id)
+    return result
+
+
+@router.put("/{club_id}/member/{user_id}/role")
+@limiter.limit("10/minute")
+async def change_member_role(
+    request: Request,
+    club_id: int,
+    user_id: int,
+    role_data: ChangeRoleRequest,
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Change a team member's role in a club.
+    
+    **Permissions:**
+    - Only owner can change roles
+    - Can promote coach to admin
+    - Can demote admin to coach
+    - Cannot change owner role
+    
+    **new_role** must be one of: 'admin', 'coach'
+    """
+    user_staff = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not user_staff:
+        raise NotFoundError("Staff user", "Please register as staff first")
+
+    result = await change_staff_role(
+        db, user_staff.id, user_id, club_id, role_data.new_role
+    )
+    return result
