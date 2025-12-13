@@ -43,6 +43,14 @@ async def get_section_by_id(session: AsyncSession, section_id: int):
     if not section:
         raise NotFoundError("Section", str(section_id))
 
+    # Pre-access all lazy relationships to ensure they're loaded in async context
+    # This prevents greenlet errors when Pydantic validators access them synchronously
+    _ = section.club
+    _ = section.coach
+    _ = section.groups
+    for sc in section.section_coaches:
+        _ = sc.coach  # Force load each coach relationship
+
     return section
 
 
@@ -80,7 +88,17 @@ async def get_sections_by_club(
 
     query = base_query.offset(skip).limit(limit).order_by(Section.created_at.desc())
     result = await session.execute(query)
-    return result.scalars().all()
+    sections = result.scalars().all()
+    
+    # Pre-access all lazy relationships to prevent greenlet errors
+    for section in sections:
+        _ = section.club
+        _ = section.coach
+        _ = section.groups
+        for sc in section.section_coaches:
+            _ = sc.coach
+    
+    return sections
 
 
 @db_operation
@@ -97,7 +115,22 @@ async def get_sections_by_coach(
     if limit <= 0 or limit > 200:
         raise ValidationError("Limit must be between 1 and 200")
 
-    # Get sections where user is primary coach OR in section_coaches
+    # First get distinct section IDs to avoid DISTINCT issues
+    section_ids_subquery = (
+        select(Section.id)
+        .outerjoin(SectionCoach, Section.id == SectionCoach.section_id)
+        .where(
+            (Section.coach_id == coach_id) | 
+            (
+                (SectionCoach.coach_id == coach_id) & 
+                (SectionCoach.is_active == True)
+            )
+        )
+        .distinct()
+        .subquery()
+    )
+    
+    # Then fetch full section data for those IDs
     query = (
         select(Section)
         .options(
@@ -106,22 +139,23 @@ async def get_sections_by_coach(
             selectinload(Section.groups),
             selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
         )
-        .outerjoin(SectionCoach, Section.id == SectionCoach.section_id)
-        .where(
-            and_(
-                Section.coach_id == coach_id,
-            ) | and_(
-                SectionCoach.coach_id == coach_id,
-                SectionCoach.is_active == True,
-            )
-        )
-        .distinct()
+        .where(Section.id.in_(select(section_ids_subquery.c.id)))
+        .order_by(Section.created_at.desc())
         .offset(skip)
         .limit(limit)
-        .order_by(Section.created_at.desc())
     )
     result = await session.execute(query)
-    return result.scalars().all()
+    sections = result.scalars().all()
+    
+    # Pre-access all lazy relationships to prevent greenlet errors
+    for section in sections:
+        _ = section.club
+        _ = section.coach
+        _ = section.groups
+        for sc in section.section_coaches:
+            _ = sc.coach
+    
+    return sections
 
 
 @db_operation
@@ -181,6 +215,14 @@ async def get_sections_paginated(
     query = base_query.offset(skip).limit(limit).order_by(Section.created_at.desc())
     result = await session.execute(query)
     sections = result.scalars().all()
+
+    # Pre-access all lazy relationships to prevent greenlet errors
+    for section in sections:
+        _ = section.club
+        _ = section.coach
+        _ = section.groups
+        for sc in section.section_coaches:
+            _ = sc.coach
 
     return sections, total
 
@@ -461,7 +503,17 @@ async def create_section(
         )
         .where(Section.id == db_section.id)
     )
-    return result.scalar_one()
+    section = result.scalar_one()
+    
+    # Pre-access all lazy relationships to ensure they're loaded in async context
+    # This prevents greenlet errors when Pydantic validators access them synchronously
+    _ = section.club
+    _ = section.coach
+    _ = section.groups
+    for sc in section.section_coaches:
+        _ = sc.coach  # Force load each coach relationship
+    
+    return section
 
 
 @db_operation
@@ -572,7 +624,16 @@ async def update_section(
         )
         .where(Section.id == section_id)
     )
-    return result.scalar_one()
+    section = result.scalar_one()
+    
+    # Pre-access all lazy relationships to ensure they're loaded in async context
+    _ = section.club
+    _ = section.coach
+    _ = section.groups
+    for sc in section.section_coaches:
+        _ = sc.coach
+    
+    return section
 
 
 @db_operation
@@ -702,7 +763,16 @@ async def toggle_section_status(
         )
         .where(Section.id == section_id)
     )
-    return result.scalar_one()
+    section = result.scalar_one()
+    
+    # Pre-access all lazy relationships to ensure they're loaded in async context
+    _ = section.club
+    _ = section.coach
+    _ = section.groups
+    for sc in section.section_coaches:
+        _ = sc.coach
+    
+    return section
 
 
 @db_operation
@@ -745,7 +815,17 @@ async def get_sections_by_user_membership(
         .order_by(Section.created_at.desc())
     )
 
-    return result.scalars().all()
+    sections = result.scalars().all()
+    
+    # Pre-access all lazy relationships to prevent greenlet errors
+    for section in sections:
+        _ = section.club
+        _ = section.coach
+        _ = section.groups
+        for sc in section.section_coaches:
+            _ = sc.coach
+
+    return sections
 
 
 @db_operation
