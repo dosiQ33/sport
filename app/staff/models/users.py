@@ -37,6 +37,24 @@ class UserStaff(Base):
         "Club", foreign_keys="Club.owner_id", back_populates="owner"
     )
 
-    coached_sections = relationship(
+    # Legacy: direct FK relationship (primary coach)
+    primary_sections = relationship(
         "Section", foreign_keys="Section.coach_id", back_populates="coach"
+    )
+    
+    primary_groups = relationship(
+        "Group", foreign_keys="Group.coach_id", back_populates="coach"
+    )
+    
+    # Many-to-many relationships for multiple coaches
+    coached_sections = relationship(
+        "SectionCoach",
+        back_populates="coach",
+        cascade="all, delete-orphan"
+    )
+    
+    coached_groups = relationship(
+        "GroupCoach",
+        back_populates="coach",
+        cascade="all, delete-orphan"
     )

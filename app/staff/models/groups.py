@@ -48,9 +48,16 @@ class Group(Base):
 
     # Relations
     section = relationship("Section", back_populates="groups")
-    coach = relationship("UserStaff", foreign_keys=[coach_id])
+    # Primary coach (legacy FK relationship)
+    coach = relationship("UserStaff", foreign_keys=[coach_id], back_populates="primary_groups")
     lessons = relationship("Lesson", back_populates="group", cascade="all, delete")
     enrollments = relationship("StudentEnrollment", back_populates="group", cascade="all, delete")
+    # Multiple coaches relationship
+    group_coaches = relationship(
+        "GroupCoach",
+        back_populates="group",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return (
