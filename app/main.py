@@ -33,6 +33,11 @@ from app.staff.routers import team as staff_team
 from app.staff.routers import tariffs as staff_tariffs
 from app.staff.routers import students as staff_students
 from app.students.routers import users as student_users
+from app.students.routers import memberships as student_memberships
+from app.students.routers import attendance as student_attendance
+from app.students.routers import payments as student_payments
+from app.students.routers import schedule as student_schedule
+from app.students.routers import clubs as student_clubs
 from app.staff.routers import schedule
 
 # Настройка системы логирования
@@ -148,14 +153,22 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 # Include routers with API version prefix
+# Staff routers
 app.include_router(staff_users.router, prefix="/api/v1")
 app.include_router(staff_clubs.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
 app.include_router(staff_groups.router, prefix="/api/v1")
 app.include_router(invitations.router, prefix="/api/v1")
-app.include_router(student_users.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(staff_team.router, prefix="/api/v1")
 app.include_router(staff_tariffs.router, prefix="/api/v1")
 app.include_router(staff_students.router, prefix="/api/v1")
 app.include_router(schedule.router, prefix="/api/v1")
+
+# Student routers
+app.include_router(student_users.router, prefix="/api/v1")
+app.include_router(student_memberships.router, prefix="/api/v1")
+app.include_router(student_attendance.router, prefix="/api/v1")
+app.include_router(student_payments.router, prefix="/api/v1")
+app.include_router(student_schedule.router, prefix="/api/v1")
+app.include_router(student_clubs.router, prefix="/api/v1")
