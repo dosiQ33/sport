@@ -94,7 +94,23 @@ async def get_groups_by_coach(
     if limit <= 0 or limit > 200:
         raise ValidationError("Limit must be between 1 and 200")
 
-    # Get groups where user is primary coach OR in group_coaches
+    # First, get distinct group IDs where user is primary coach OR in group_coaches
+    # Using subquery to avoid DISTINCT issues with JSON columns
+    group_ids_subquery = (
+        select(Group.id)
+        .outerjoin(GroupCoach, Group.id == GroupCoach.group_id)
+        .where(
+            (Group.coach_id == coach_id) | 
+            (
+                (GroupCoach.coach_id == coach_id) & 
+                (GroupCoach.is_active == True)
+            )
+        )
+        .distinct()
+        .subquery()
+    )
+    
+    # Then fetch full group data for those IDs
     query = (
         select(Group)
         .options(
@@ -102,19 +118,10 @@ async def get_groups_by_coach(
             selectinload(Group.coach),
             selectinload(Group.group_coaches).selectinload(GroupCoach.coach),
         )
-        .outerjoin(GroupCoach, Group.id == GroupCoach.group_id)
-        .where(
-            and_(
-                Group.coach_id == coach_id,
-            ) | and_(
-                GroupCoach.coach_id == coach_id,
-                GroupCoach.is_active == True,
-            )
-        )
-        .distinct()
+        .where(Group.id.in_(select(group_ids_subquery.c.id)))
+        .order_by(Group.created_at.desc())
         .offset(skip)
         .limit(limit)
-        .order_by(Group.created_at.desc())
     )
     result = await session.execute(query)
     return result.scalars().all()
