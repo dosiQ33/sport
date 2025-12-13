@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, List
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field
 
 from app.core.exceptions import ValidationError
 from app.core.validations import clean_phone_number
@@ -35,6 +35,22 @@ class ClubBase(BaseModel):
     )
     instagram_url: Optional[str] = Field(
         None, max_length=255, description="Instagram profile URL"
+    )
+    whatsapp_url: Optional[str] = Field(
+        None, max_length=255, description="WhatsApp contact URL or number"
+    )
+    
+    # Working hours
+    working_hours_start: Optional[str] = Field(
+        "09:00", max_length=5, description="Opening time (HH:MM)"
+    )
+    working_hours_end: Optional[str] = Field(
+        "21:00", max_length=5, description="Closing time (HH:MM)"
+    )
+    
+    # Tags
+    tags: Optional[List[str]] = Field(
+        default_factory=list, description="List of tags for categorization"
     )
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
@@ -82,6 +98,28 @@ class ClubBase(BaseModel):
                 )
         return v
 
+    @field_validator("working_hours_start", "working_hours_end")
+    @classmethod
+    def validate_working_hours(cls, v):
+        if v:
+            if not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", v):
+                raise ValidationError("Working hours must be in HH:MM format (e.g., 09:00)")
+        return v
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v):
+        if v:
+            # Ensure tags are unique and not too long
+            unique_tags = list(set(tag.strip().lower() for tag in v if tag.strip()))
+            if len(unique_tags) > 20:
+                raise ValidationError("Maximum 20 tags allowed")
+            for tag in unique_tags:
+                if len(tag) > 50:
+                    raise ValidationError("Each tag must be 50 characters or less")
+            return unique_tags
+        return v or []
+
 
 class ClubCreate(ClubBase):
     """Schema for creating a new club."""
@@ -104,6 +142,12 @@ class ClubUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=32)
     telegram_url: Optional[str] = Field(None, max_length=255)
     instagram_url: Optional[str] = Field(None, max_length=255)
+    whatsapp_url: Optional[str] = Field(None, max_length=255)
+    
+    working_hours_start: Optional[str] = Field(None, max_length=5)
+    working_hours_end: Optional[str] = Field(None, max_length=5)
+    
+    tags: Optional[List[str]] = Field(None)
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
 
@@ -152,6 +196,24 @@ class ClubUpdate(BaseModel):
                 )
         return v
 
+    @field_validator("working_hours_start", "working_hours_end")
+    @classmethod
+    def validate_working_hours(cls, v):
+        if v:
+            if not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", v):
+                raise ValidationError("Working hours must be in HH:MM format")
+        return v
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v):
+        if v is not None:
+            unique_tags = list(set(tag.strip().lower() for tag in v if tag.strip()))
+            if len(unique_tags) > 20:
+                raise ValidationError("Maximum 20 tags allowed")
+            return unique_tags
+        return v
+
 
 class ClubOwnerInfo(BaseModel):
     """Basic owner information for club response."""
@@ -172,6 +234,14 @@ class ClubRead(ClubBase):
     owner: Optional[ClubOwnerInfo] = None
     created_at: datetime
     updated_at: datetime
+    
+    # Computed property for formatted working hours
+    @computed_field
+    @property
+    def working_hours(self) -> str:
+        start = self.working_hours_start or "09:00"
+        end = self.working_hours_end or "21:00"
+        return f"{start} - {end}"
 
     model_config = ConfigDict(from_attributes=True)
 
