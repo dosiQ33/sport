@@ -450,9 +450,18 @@ async def create_section(
     # Выполняем операцию в транзакции
     db_section = await with_db_transaction(session, _create_section_operation)
 
-    # Загружаем связанные данные
-    await session.refresh(db_section, ["club", "coach", "groups", "section_coaches"])
-    return db_section
+    # Reload the section with all relationships properly loaded
+    result = await session.execute(
+        select(Section)
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+            selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
+        )
+        .where(Section.id == db_section.id)
+    )
+    return result.scalar_one()
 
 
 @db_operation
@@ -551,9 +560,19 @@ async def update_section(
             session.add(section_coach)
 
     await session.commit()
-    await session.refresh(db_section, ["club", "coach", "groups", "section_coaches", "updated_at"])
-
-    return db_section
+    
+    # Reload the section with all relationships properly loaded (including nested)
+    result = await session.execute(
+        select(Section)
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+            selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
+        )
+        .where(Section.id == section_id)
+    )
+    return result.scalar_one()
 
 
 @db_operation
@@ -671,8 +690,19 @@ async def toggle_section_status(
 
     db_section.active = not db_section.active
     await session.commit()
-    await session.refresh(db_section, ["club", "coach", "groups"])
-    return db_section
+    
+    # Reload the section with all relationships properly loaded (including nested)
+    result = await session.execute(
+        select(Section)
+        .options(
+            selectinload(Section.club),
+            selectinload(Section.coach),
+            selectinload(Section.groups),
+            selectinload(Section.section_coaches).selectinload(SectionCoach.coach),
+        )
+        .where(Section.id == section_id)
+    )
+    return result.scalar_one()
 
 
 @db_operation
