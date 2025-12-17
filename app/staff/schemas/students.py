@@ -185,3 +185,79 @@ class CreateEnrollmentRequest(BaseModel):
     end_date: date
     price: float = 0
     freeze_days_total: int = 0
+
+
+# ===== Student Attendance for Staff =====
+
+class StudentAttendanceRecord(BaseModel):
+    """Запись о посещении студента (для staff)"""
+    id: int
+    date: date
+    time: Optional[str] = None
+    club_id: Optional[int] = None
+    club_name: Optional[str] = None
+    section_id: Optional[int] = None
+    section_name: Optional[str] = None
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    lesson_id: Optional[int] = None
+    coach_name: Optional[str] = None
+    status: str = "attended"  # attended, missed, late, excused
+    
+    class Config:
+        from_attributes = True
+
+
+class StudentAttendanceListResponse(BaseModel):
+    """Ответ со списком посещений студента"""
+    records: List[StudentAttendanceRecord]
+    total: int
+    page: int
+    size: int
+    pages: int
+
+
+class StudentAttendanceStats(BaseModel):
+    """Статистика посещений студента"""
+    total_visits: int = 0
+    visits_this_month: int = 0
+    missed_this_month: int = 0
+    late_this_month: int = 0
+    attendance_rate: float = 0.0  # percentage
+
+
+# ===== Student Payments for Staff =====
+
+class StudentPaymentRecord(BaseModel):
+    """Запись о платеже студента (для staff)"""
+    id: int
+    date: date
+    amount: float
+    currency: str = "KZT"
+    club_id: Optional[int] = None
+    club_name: Optional[str] = None
+    tariff_id: Optional[int] = None
+    tariff_name: Optional[str] = None
+    operation_type: str = "purchase"  # purchase, renewal, extension, refund
+    status: str = "paid"  # pending, paid, failed, refunded, cancelled
+    payment_method: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class StudentPaymentListResponse(BaseModel):
+    """Ответ со списком платежей студента"""
+    payments: List[StudentPaymentRecord]
+    total: int
+    page: int
+    size: int
+    pages: int
+
+
+class StudentPaymentStats(BaseModel):
+    """Статистика платежей студента"""
+    total_paid: float = 0.0
+    payments_count: int = 0
+    last_payment_date: Optional[date] = None
+    pending_amount: float = 0.0

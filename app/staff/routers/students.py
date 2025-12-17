@@ -1,5 +1,7 @@
 """Staff Students Router - Endpoints for staff to manage students"""
-from fastapi import APIRouter, Depends, Query, status, Request
+import math
+from datetime import date
+from fastapi import APIRouter, Depends, Query, status, Request, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, Optional, List
 
@@ -15,6 +17,10 @@ from app.staff.crud.students import (
     extend_membership,
     freeze_membership,
     unfreeze_membership,
+    get_student_attendance_for_staff,
+    get_student_attendance_stats_for_staff,
+    get_student_payments_for_staff,
+    get_student_payment_stats_for_staff,
 )
 from app.staff.schemas.students import (
     StudentRead,
@@ -24,6 +30,12 @@ from app.staff.schemas.students import (
     FreezeMembershipRequest,
     CreateEnrollmentRequest,
     EnrollmentStatusEnum,
+    StudentAttendanceRecord,
+    StudentAttendanceListResponse,
+    StudentAttendanceStats,
+    StudentPaymentRecord,
+    StudentPaymentListResponse,
+    StudentPaymentStats,
 )
 
 router = APIRouter(prefix="/staff/students", tags=["Staff Students"])
@@ -260,3 +272,167 @@ async def unfreeze_student_membership(
         "status": enrollment.status.value,
         "end_date": enrollment.end_date.isoformat(),
     }
+
+
+# ===== Student Attendance Endpoints =====
+
+@router.get("/{student_id}/attendance", response_model=StudentAttendanceListResponse)
+@limiter.limit("30/minute")
+async def get_student_attendance(
+    request: Request,
+    student_id: int = Path(..., description="Student ID"),
+    page: int = Query(1, ge=1, description="Page number starting from 1"),
+    size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    date_from: Optional[date] = Query(None, description="Filter from date"),
+    date_to: Optional[date] = Query(None, description="Filter to date"),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Get a student's attendance history.
+    
+    Returns paginated list of attendance records.
+    Staff can only view attendance for students they have access to.
+    
+    - **student_id**: ID of the student
+    - **page**: Page number (starts from 1)
+    - **size**: Number of records per page (max 100)
+    - **date_from**: Optional start date filter
+    - **date_to**: Optional end date filter
+    """
+    staff_user = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not staff_user:
+        raise NotFoundError("Staff user", "Please register as staff first")
+    
+    skip = (page - 1) * size
+    
+    records, total = await get_student_attendance_for_staff(
+        db,
+        student_id=student_id,
+        staff_user_id=staff_user.id,
+        skip=skip,
+        limit=size,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    
+    pages = math.ceil(total / size) if total > 0 else 1
+    
+    return StudentAttendanceListResponse(
+        records=records,
+        total=total,
+        page=page,
+        size=size,
+        pages=pages,
+    )
+
+
+@router.get("/{student_id}/attendance/stats", response_model=StudentAttendanceStats)
+@limiter.limit("30/minute")
+async def get_student_attendance_statistics(
+    request: Request,
+    student_id: int = Path(..., description="Student ID"),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Get attendance statistics for a student.
+    
+    Returns summary statistics including:
+    - Total visits
+    - Visits this month
+    - Missed sessions this month
+    - Late arrivals this month
+    - Overall attendance rate
+    """
+    staff_user = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not staff_user:
+        raise NotFoundError("Staff user", "Please register as staff first")
+    
+    stats = await get_student_attendance_stats_for_staff(
+        db,
+        student_id=student_id,
+        staff_user_id=staff_user.id,
+    )
+    
+    return stats
+
+
+# ===== Student Payment Endpoints =====
+
+@router.get("/{student_id}/payments", response_model=StudentPaymentListResponse)
+@limiter.limit("30/minute")
+async def get_student_payments(
+    request: Request,
+    student_id: int = Path(..., description="Student ID"),
+    page: int = Query(1, ge=1, description="Page number starting from 1"),
+    size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (pending, paid, failed, refunded, cancelled)"),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Get a student's payment history.
+    
+    Returns paginated list of payment records.
+    Staff can only view payments for students they have access to.
+    
+    - **student_id**: ID of the student
+    - **page**: Page number (starts from 1)
+    - **size**: Number of records per page (max 100)
+    - **status**: Optional status filter
+    """
+    staff_user = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not staff_user:
+        raise NotFoundError("Staff user", "Please register as staff first")
+    
+    skip = (page - 1) * size
+    
+    payments, total = await get_student_payments_for_staff(
+        db,
+        student_id=student_id,
+        staff_user_id=staff_user.id,
+        skip=skip,
+        limit=size,
+        status_filter=status_filter,
+    )
+    
+    pages = math.ceil(total / size) if total > 0 else 1
+    
+    return StudentPaymentListResponse(
+        payments=payments,
+        total=total,
+        page=page,
+        size=size,
+        pages=pages,
+    )
+
+
+@router.get("/{student_id}/payments/stats", response_model=StudentPaymentStats)
+@limiter.limit("30/minute")
+async def get_student_payment_statistics(
+    request: Request,
+    student_id: int = Path(..., description="Student ID"),
+    current_user: Dict[str, Any] = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Get payment statistics for a student.
+    
+    Returns summary statistics including:
+    - Total amount paid
+    - Number of payments
+    - Last payment date
+    - Pending payment amount
+    """
+    staff_user = await get_user_staff_by_telegram_id(db, current_user.get("id"))
+    if not staff_user:
+        raise NotFoundError("Staff user", "Please register as staff first")
+    
+    stats = await get_student_payment_stats_for_staff(
+        db,
+        student_id=student_id,
+        staff_user_id=staff_user.id,
+    )
+    
+    return stats
