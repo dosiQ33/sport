@@ -14,11 +14,14 @@ from app.staff.models.sections import Section
 from app.staff.models.groups import Group
 from app.staff.models.tariffs import Tariff
 from app.staff.models.enrollments import StudentEnrollment, EnrollmentStatus
+from app.staff.models.users import UserStaff
+from app.staff.models.section_coaches import SectionCoach
 from app.students.schemas.clubs import (
     ClubRead,
     ClubDetailRead,
     ClubSectionRead,
     ClubTariffRead,
+    ClubCoachRead,
     ClubLocationRead,
     NearestClubResponse,
 )
@@ -121,7 +124,7 @@ async def get_clubs_list(
 
 @db_operation
 async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRead:
-    """Get detailed club information with sections and tariffs"""
+    """Get detailed club information with sections, tariffs, and coaches"""
     # Get club
     club_query = select(Club).where(Club.id == club_id)
     club_result = await session.execute(club_query)
@@ -147,6 +150,61 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
         )
         for s in sections_data
     ]
+
+    # Get coaches for this club (coaches from sections belonging to this club)
+    # First get all section IDs for this club
+    section_ids = [s.id for s in sections_data]
+    
+    coaches = []
+    if section_ids:
+        # Get coaches from section_coaches table
+        coaches_query = (
+            select(UserStaff, Section.name.label('section_name'))
+            .select_from(SectionCoach)
+            .join(UserStaff, SectionCoach.coach_id == UserStaff.id)
+            .join(Section, SectionCoach.section_id == Section.id)
+            .where(
+                and_(
+                    SectionCoach.section_id.in_(section_ids),
+                    SectionCoach.is_active == True
+                )
+            )
+            .distinct()
+        )
+        coaches_result = await session.execute(coaches_query)
+        coaches_rows = coaches_result.fetchall()
+        
+        # Also get primary coaches from sections (legacy relationship)
+        primary_coaches_query = (
+            select(UserStaff, Section.name.label('section_name'))
+            .select_from(Section)
+            .join(UserStaff, Section.coach_id == UserStaff.id)
+            .where(
+                and_(
+                    Section.club_id == club_id,
+                    Section.active == True
+                )
+            )
+        )
+        primary_coaches_result = await session.execute(primary_coaches_query)
+        primary_coaches_rows = primary_coaches_result.fetchall()
+        
+        # Combine and deduplicate coaches
+        seen_coach_ids = set()
+        for row in list(coaches_rows) + list(primary_coaches_rows):
+            coach = row[0]
+            section_name = row[1]
+            if coach.id not in seen_coach_ids:
+                seen_coach_ids.add(coach.id)
+                coaches.append(
+                    ClubCoachRead(
+                        id=coach.id,
+                        first_name=coach.first_name,
+                        last_name=coach.last_name,
+                        photo_url=coach.photo_url,
+                        specialization=section_name,
+                    )
+                )
 
     tariffs_query = (
         select(Tariff)
@@ -211,6 +269,7 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
         tags=club.tags or [],
         sections=sections,
         tariffs=tariffs,
+        coaches=coaches,
     )
 
 

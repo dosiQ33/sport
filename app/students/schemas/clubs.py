@@ -4,6 +4,18 @@ from typing import Optional, List
 from datetime import datetime
 
 
+class ClubCoachRead(BaseModel):
+    """Coach info for club details"""
+    id: int
+    first_name: str
+    last_name: Optional[str] = None
+    photo_url: Optional[str] = None
+    specialization: Optional[str] = None  # Section name they coach
+    
+    class Config:
+        from_attributes = True
+
+
 class ClubSectionRead(BaseModel):
     """Section info for club details"""
     id: int
@@ -65,9 +77,10 @@ class ClubRead(BaseModel):
 
 
 class ClubDetailRead(ClubRead):
-    """Detailed club information with sections and tariffs"""
+    """Detailed club information with sections, tariffs, and coaches"""
     sections: List[ClubSectionRead] = []
     tariffs: List[ClubTariffRead] = []
+    coaches: List[ClubCoachRead] = []
 
 
 class ClubListResponse(BaseModel):
