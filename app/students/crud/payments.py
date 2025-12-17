@@ -12,6 +12,9 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.students.models.payments import StudentPayment, PaymentStatus, PaymentMethod
 from app.staff.models.clubs import Club
 from app.staff.models.tariffs import Tariff
+from app.staff.models.sections import Section
+from app.staff.models.groups import Group
+from app.staff.models.enrollments import StudentEnrollment, EnrollmentStatus
 from app.students.schemas.payments import (
     PaymentRecordRead,
     PaymentStatusEnum,
@@ -19,6 +22,7 @@ from app.students.schemas.payments import (
     InitiatePaymentRequest,
     InitiatePaymentResponse,
     PaymentStatsResponse,
+    CompletePaymentResponse,
 )
 
 
@@ -195,4 +199,134 @@ async def get_payment_stats(
         pending_payments=pending_payments,
         payments_this_month=payments_this_month,
         amount_this_month=amount_this_month,
+    )
+
+
+@db_operation
+async def complete_payment(
+    session: AsyncSession,
+    student_id: int,
+    payment_id: int
+) -> CompletePaymentResponse:
+    """
+    Complete a payment and create student enrollment.
+    This is a mock function that simulates successful payment completion.
+    In production, this would be called by a payment gateway webhook.
+    """
+    from datetime import timedelta
+    
+    # Get the payment
+    payment_query = select(StudentPayment).where(
+        and_(
+            StudentPayment.id == payment_id,
+            StudentPayment.student_id == student_id
+        )
+    )
+    payment_result = await session.execute(payment_query)
+    payment = payment_result.scalar_one_or_none()
+    
+    if not payment:
+        raise NotFoundError("Payment", str(payment_id))
+    
+    if payment.status == PaymentStatus.paid:
+        return CompletePaymentResponse(
+            success=True,
+            payment_id=payment_id,
+            enrollment_id=payment.enrollment_id,
+            message="Payment already completed"
+        )
+    
+    if payment.status != PaymentStatus.pending:
+        raise ValidationError(f"Cannot complete payment with status: {payment.status}")
+    
+    # Get the tariff to determine enrollment duration
+    tariff_query = select(Tariff).where(Tariff.id == payment.tariff_id)
+    tariff_result = await session.execute(tariff_query)
+    tariff = tariff_result.scalar_one_or_none()
+    
+    if not tariff:
+        raise NotFoundError("Tariff", str(payment.tariff_id))
+    
+    # Find a group to enroll the student in
+    # First, try to find a group in the club associated with the tariff
+    group = None
+    
+    # If tariff has specific group_ids, use the first one
+    if tariff.group_ids and len(tariff.group_ids) > 0:
+        group_query = select(Group).where(Group.id == tariff.group_ids[0])
+        group_result = await session.execute(group_query)
+        group = group_result.scalar_one_or_none()
+    
+    # If no specific group, find any active group in the club
+    if not group and payment.club_id:
+        group_query = (
+            select(Group)
+            .join(Section, Group.section_id == Section.id)
+            .where(
+                and_(
+                    Section.club_id == payment.club_id,
+                    Group.active == True,
+                    Section.active == True
+                )
+            )
+            .limit(1)
+        )
+        group_result = await session.execute(group_query)
+        group = group_result.scalar_one_or_none()
+    
+    enrollment_id = None
+    
+    if group:
+        # Check if student is already enrolled in this group
+        existing_enrollment_query = select(StudentEnrollment).where(
+            and_(
+                StudentEnrollment.student_id == student_id,
+                StudentEnrollment.group_id == group.id,
+                StudentEnrollment.status.in_([EnrollmentStatus.active, EnrollmentStatus.new])
+            )
+        )
+        existing_result = await session.execute(existing_enrollment_query)
+        existing_enrollment = existing_result.scalar_one_or_none()
+        
+        if existing_enrollment:
+            # Extend the existing enrollment
+            if tariff.validity_days:
+                existing_enrollment.end_date = existing_enrollment.end_date + timedelta(days=tariff.validity_days)
+            else:
+                existing_enrollment.end_date = existing_enrollment.end_date + timedelta(days=30)
+            enrollment_id = existing_enrollment.id
+        else:
+            # Create new enrollment
+            start_date = date.today()
+            end_date = start_date + timedelta(days=tariff.validity_days or 30)
+            
+            enrollment = StudentEnrollment(
+                student_id=student_id,
+                group_id=group.id,
+                status=EnrollmentStatus.new,
+                start_date=start_date,
+                end_date=end_date,
+                tariff_id=tariff.id,
+                tariff_name=tariff.name,
+                price=tariff.price,
+                freeze_days_total=7,  # Default freeze days
+                freeze_days_used=0,
+                is_active=True,
+            )
+            session.add(enrollment)
+            await session.flush()
+            enrollment_id = enrollment.id
+    
+    # Update payment status
+    payment.status = PaymentStatus.paid
+    payment.payment_date = datetime.now()
+    payment.enrollment_id = enrollment_id
+    
+    await session.commit()
+    
+    return CompletePaymentResponse(
+        success=True,
+        payment_id=payment_id,
+        enrollment_id=enrollment_id,
+        message="Payment completed successfully. Membership activated."
     )

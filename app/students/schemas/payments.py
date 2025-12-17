@@ -94,3 +94,23 @@ class PaymentStatsResponse(BaseModel):
     pending_payments: int = 0
     payments_this_month: int = 0
     amount_this_month: float = 0
+
+
+class CompletePaymentRequest(BaseModel):
+    """Request to complete/confirm a payment (mock)"""
+    payment_id: int
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "payment_id": 1
+            }
+        }
+
+
+class CompletePaymentResponse(BaseModel):
+    """Response after payment completion"""
+    success: bool
+    payment_id: int
+    enrollment_id: Optional[int] = None
+    message: str

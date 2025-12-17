@@ -13,6 +13,7 @@ from app.students.crud.payments import (
     get_student_payments,
     initiate_payment,
     get_payment_stats,
+    complete_payment,
 )
 from app.students.schemas.payments import (
     PaymentRecordRead,
@@ -20,6 +21,8 @@ from app.students.schemas.payments import (
     InitiatePaymentRequest,
     InitiatePaymentResponse,
     PaymentStatsResponse,
+    CompletePaymentRequest,
+    CompletePaymentResponse,
 )
 
 router = APIRouter(prefix="/students/payments", tags=["Student Payments"])
@@ -103,3 +106,30 @@ async def get_my_payment_stats(
     stats = await get_payment_stats(db, student.id)
     
     return stats
+
+
+@router.post("/complete", response_model=CompletePaymentResponse)
+@limiter.limit("10/minute")
+async def complete_my_payment(
+    request: Request,
+    payment_request: CompletePaymentRequest,
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Complete a payment and activate membership.
+    
+    This is a mock endpoint that simulates successful payment completion.
+    In production, this would be replaced by payment gateway webhook.
+    
+    - Marks the payment as paid
+    - Creates or extends student enrollment in the club
+    - Returns enrollment details
+    """
+    student = await get_user_student_by_telegram_id(db, current_user.get("id"))
+    if not student:
+        raise NotFoundError("Student", "Please register first")
+    
+    result = await complete_payment(db, student.id, payment_request.payment_id)
+    
+    return result
