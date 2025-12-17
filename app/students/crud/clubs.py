@@ -158,8 +158,15 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
     coaches = []
     if section_ids:
         # Get coaches from section_coaches table
+        # Only select specific columns to avoid JSON comparison issues with DISTINCT
         coaches_query = (
-            select(UserStaff, Section.name.label('section_name'))
+            select(
+                UserStaff.id,
+                UserStaff.first_name,
+                UserStaff.last_name,
+                UserStaff.photo_url,
+                Section.name.label('section_name')
+            )
             .select_from(SectionCoach)
             .join(UserStaff, SectionCoach.coach_id == UserStaff.id)
             .join(Section, SectionCoach.section_id == Section.id)
@@ -169,14 +176,19 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
                     SectionCoach.is_active == True
                 )
             )
-            .distinct()
         )
         coaches_result = await session.execute(coaches_query)
         coaches_rows = coaches_result.fetchall()
         
         # Also get primary coaches from sections (legacy relationship)
         primary_coaches_query = (
-            select(UserStaff, Section.name.label('section_name'))
+            select(
+                UserStaff.id,
+                UserStaff.first_name,
+                UserStaff.last_name,
+                UserStaff.photo_url,
+                Section.name.label('section_name')
+            )
             .select_from(Section)
             .join(UserStaff, Section.coach_id == UserStaff.id)
             .where(
@@ -192,16 +204,19 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
         # Combine and deduplicate coaches
         seen_coach_ids = set()
         for row in list(coaches_rows) + list(primary_coaches_rows):
-            coach = row[0]
-            section_name = row[1]
-            if coach.id not in seen_coach_ids:
-                seen_coach_ids.add(coach.id)
+            coach_id = row[0]
+            first_name = row[1]
+            last_name = row[2]
+            photo_url = row[3]
+            section_name = row[4]
+            if coach_id not in seen_coach_ids:
+                seen_coach_ids.add(coach_id)
                 coaches.append(
                     ClubCoachRead(
-                        id=coach.id,
-                        first_name=coach.first_name,
-                        last_name=coach.last_name,
-                        photo_url=coach.photo_url,
+                        id=coach_id,
+                        first_name=first_name,
+                        last_name=last_name,
+                        photo_url=photo_url,
                         specialization=section_name,
                     )
                 )
