@@ -108,3 +108,23 @@ class ScheduleFilters(BaseModel):
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     only_my_sessions: bool = False
+
+
+class ParticipantInfo(BaseModel):
+    """Information about a session participant"""
+    id: int
+    first_name: str
+    last_name: Optional[str] = None
+    photo_url: Optional[str] = None
+    is_current_user: bool = False
+    
+    class Config:
+        from_attributes = True
+
+
+class SessionParticipantsResponse(BaseModel):
+    """Response with list of session participants"""
+    lesson_id: int
+    participants: List[ParticipantInfo]
+    total: int
+    max_participants: Optional[int] = None

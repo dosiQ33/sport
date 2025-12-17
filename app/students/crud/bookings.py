@@ -377,3 +377,68 @@ async def is_student_booked_for_lesson(
         return False, False
     
     return booking.status == "booked", booking.status == "waitlist"
+
+
+@db_operation
+async def get_lesson_participants(
+    session: AsyncSession,
+    lesson_id: int,
+    current_student_id: int,
+) -> Tuple[List[dict], int, Optional[int]]:
+    """
+    Get list of participants for a lesson.
+    
+    Returns: (participants_list, total_count, max_participants)
+    """
+    from app.students.models.users import UserStudent
+    
+    # Get lesson to get max_participants from group
+    lesson_query = (
+        select(Lesson, Group)
+        .select_from(Lesson)
+        .join(Group, Lesson.group_id == Group.id)
+        .where(Lesson.id == lesson_id)
+    )
+    lesson_result = await session.execute(lesson_query)
+    lesson_row = lesson_result.first()
+    
+    if not lesson_row:
+        raise NotFoundError("Lesson", str(lesson_id))
+    
+    lesson, group = lesson_row
+    max_participants = group.capacity
+    
+    # Get all booked participants
+    participants_query = (
+        select(
+            UserStudent.id,
+            UserStudent.first_name,
+            UserStudent.last_name,
+            UserStudent.photo_url,
+            LessonBooking.created_at
+        )
+        .select_from(LessonBooking)
+        .join(UserStudent, LessonBooking.student_id == UserStudent.id)
+        .where(
+            and_(
+                LessonBooking.lesson_id == lesson_id,
+                LessonBooking.status == "booked"
+            )
+        )
+        .order_by(LessonBooking.created_at.asc())
+    )
+    
+    result = await session.execute(participants_query)
+    rows = result.fetchall()
+    
+    participants = []
+    for row in rows:
+        participants.append({
+            "id": row[0],
+            "first_name": row[1],
+            "last_name": row[2],
+            "photo_url": row[3],
+            "is_current_user": row[0] == current_student_id
+        })
+    
+    return participants, len(participants), max_participants

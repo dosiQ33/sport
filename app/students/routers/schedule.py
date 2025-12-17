@@ -19,6 +19,7 @@ from app.students.crud.bookings import (
     book_session,
     cancel_booking,
     join_waitlist,
+    get_lesson_participants,
 )
 from app.students.schemas.schedule import (
     SessionRead,
@@ -29,6 +30,8 @@ from app.students.schemas.schedule import (
     BookSessionResponse,
     CancelBookingRequest,
     CancelBookingResponse,
+    ParticipantInfo,
+    SessionParticipantsResponse,
 )
 
 router = APIRouter(prefix="/students/schedule", tags=["Student Schedule"])
@@ -224,3 +227,35 @@ async def join_session_waitlist(
     )
     
     return result
+
+
+@router.get("/sessions/{lesson_id}/participants", response_model=SessionParticipantsResponse)
+@limiter.limit("30/minute")
+async def get_session_participants(
+    request: Request,
+    lesson_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Get list of participants for a specific training session.
+    
+    Returns list of participants with their names and avatars.
+    Current user is marked with is_current_user flag.
+    """
+    student = await get_user_student_by_telegram_id(db, current_user.get("id"))
+    if not student:
+        raise NotFoundError("Student", "Please register first")
+    
+    participants, total, max_participants = await get_lesson_participants(
+        db,
+        lesson_id=lesson_id,
+        current_student_id=student.id,
+    )
+    
+    return SessionParticipantsResponse(
+        lesson_id=lesson_id,
+        participants=[ParticipantInfo(**p) for p in participants],
+        total=total,
+        max_participants=max_participants,
+    )
