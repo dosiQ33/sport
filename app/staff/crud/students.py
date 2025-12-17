@@ -1,8 +1,8 @@
 """Staff Students CRUD - Operations for managing students from staff perspective"""
 import math
 from typing import List, Optional, Tuple, Dict
-from datetime import date, timedelta
-from sqlalchemy import and_, or_, func
+from datetime import date, timedelta, datetime
+from sqlalchemy import and_, or_, func, extract
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,8 +16,19 @@ from app.staff.models.clubs import Club
 from app.staff.models.users import UserStaff
 from app.staff.models.user_roles import UserRole
 from app.staff.models.roles import Role, RoleType
+from app.staff.models.tariffs import Tariff
 from app.students.models.users import UserStudent
-from app.staff.schemas.students import StudentFilters, StudentRead, MembershipInfo
+from app.students.models.attendance import StudentAttendance
+from app.students.models.payments import StudentPayment
+from app.staff.schemas.students import (
+    StudentFilters, 
+    StudentRead, 
+    MembershipInfo,
+    StudentAttendanceRecord,
+    StudentAttendanceStats,
+    StudentPaymentRecord,
+    StudentPaymentStats,
+)
 
 
 async def get_user_accessible_club_ids(
@@ -520,3 +531,334 @@ async def unfreeze_membership(
     await session.refresh(enrollment)
     
     return enrollment
+
+
+# ===== Student Attendance for Staff =====
+
+@db_operation
+async def get_student_attendance_for_staff(
+    session: AsyncSession,
+    student_id: int,
+    staff_user_id: int,
+    skip: int = 0,
+    limit: int = 20,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None
+) -> Tuple[List[StudentAttendanceRecord], int]:
+    """
+    Get student's attendance history.
+    Staff can only see attendance for students they have access to.
+    """
+    # First verify staff has access to this student
+    student = await get_student_by_id_for_staff(session, student_id, staff_user_id)
+    if not student:
+        raise NotFoundError("Student", str(student_id))
+    
+    # Build query for attendance records
+    base_query = (
+        select(
+            StudentAttendance,
+            Club.name.label("club_name"),
+            Section.name.label("section_name"),
+            Group.name.label("group_name"),
+            UserStaff.first_name.label("coach_first_name"),
+            UserStaff.last_name.label("coach_last_name"),
+        )
+        .select_from(StudentAttendance)
+        .outerjoin(Club, StudentAttendance.club_id == Club.id)
+        .outerjoin(Section, StudentAttendance.section_id == Section.id)
+        .outerjoin(Group, StudentAttendance.group_id == Group.id)
+        .outerjoin(UserStaff, Group.coach_id == UserStaff.id)
+        .where(StudentAttendance.student_id == student_id)
+    )
+    
+    # Apply date filters
+    if date_from:
+        base_query = base_query.where(StudentAttendance.checkin_date >= date_from)
+    if date_to:
+        base_query = base_query.where(StudentAttendance.checkin_date <= date_to)
+    
+    # Count total
+    count_query = select(func.count()).select_from(
+        StudentAttendance
+    ).where(StudentAttendance.student_id == student_id)
+    
+    if date_from:
+        count_query = count_query.where(StudentAttendance.checkin_date >= date_from)
+    if date_to:
+        count_query = count_query.where(StudentAttendance.checkin_date <= date_to)
+    
+    total_result = await session.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # Apply pagination and ordering
+    query = base_query.order_by(StudentAttendance.checkin_date.desc()).offset(skip).limit(limit)
+    
+    result = await session.execute(query)
+    rows = result.fetchall()
+    
+    # Transform to response
+    records = []
+    for row in rows:
+        attendance = row[0]
+        club_name = row[1]
+        section_name = row[2]
+        group_name = row[3]
+        coach_first = row[4]
+        coach_last = row[5]
+        
+        coach_name = None
+        if coach_first:
+            coach_name = f"{coach_first} {coach_last or ''}".strip()
+        
+        time_str = None
+        if attendance.checkin_time:
+            time_str = attendance.checkin_time.strftime("%H:%M")
+        
+        records.append(StudentAttendanceRecord(
+            id=attendance.id,
+            date=attendance.checkin_date,
+            time=time_str,
+            club_id=attendance.club_id,
+            club_name=club_name,
+            section_id=attendance.section_id,
+            section_name=section_name,
+            group_id=attendance.group_id,
+            group_name=group_name,
+            lesson_id=attendance.lesson_id,
+            coach_name=coach_name,
+            status=attendance.status or "attended",
+        ))
+    
+    return records, total
+
+
+@db_operation
+async def get_student_attendance_stats_for_staff(
+    session: AsyncSession,
+    student_id: int,
+    staff_user_id: int
+) -> StudentAttendanceStats:
+    """Get attendance statistics for a student."""
+    # Verify access
+    student = await get_student_by_id_for_staff(session, student_id, staff_user_id)
+    if not student:
+        raise NotFoundError("Student", str(student_id))
+    
+    today = date.today()
+    month_start = today.replace(day=1)
+    
+    # Total visits
+    total_query = select(func.count()).select_from(StudentAttendance).where(
+        and_(
+            StudentAttendance.student_id == student_id,
+            StudentAttendance.status == "attended"
+        )
+    )
+    total_result = await session.execute(total_query)
+    total_visits = total_result.scalar() or 0
+    
+    # Visits this month
+    month_visits_query = select(func.count()).select_from(StudentAttendance).where(
+        and_(
+            StudentAttendance.student_id == student_id,
+            StudentAttendance.status == "attended",
+            StudentAttendance.checkin_date >= month_start
+        )
+    )
+    month_result = await session.execute(month_visits_query)
+    visits_this_month = month_result.scalar() or 0
+    
+    # Missed this month
+    missed_query = select(func.count()).select_from(StudentAttendance).where(
+        and_(
+            StudentAttendance.student_id == student_id,
+            StudentAttendance.status == "missed",
+            StudentAttendance.checkin_date >= month_start
+        )
+    )
+    missed_result = await session.execute(missed_query)
+    missed_this_month = missed_result.scalar() or 0
+    
+    # Late this month
+    late_query = select(func.count()).select_from(StudentAttendance).where(
+        and_(
+            StudentAttendance.student_id == student_id,
+            StudentAttendance.status == "late",
+            StudentAttendance.checkin_date >= month_start
+        )
+    )
+    late_result = await session.execute(late_query)
+    late_this_month = late_result.scalar() or 0
+    
+    # Calculate attendance rate
+    total_month = visits_this_month + missed_this_month + late_this_month
+    attendance_rate = 0.0
+    if total_month > 0:
+        attendance_rate = round((visits_this_month + late_this_month) / total_month * 100, 1)
+    
+    return StudentAttendanceStats(
+        total_visits=total_visits,
+        visits_this_month=visits_this_month,
+        missed_this_month=missed_this_month,
+        late_this_month=late_this_month,
+        attendance_rate=attendance_rate,
+    )
+
+
+# ===== Student Payments for Staff =====
+
+@db_operation
+async def get_student_payments_for_staff(
+    session: AsyncSession,
+    student_id: int,
+    staff_user_id: int,
+    skip: int = 0,
+    limit: int = 20,
+    status_filter: Optional[str] = None
+) -> Tuple[List[StudentPaymentRecord], int]:
+    """
+    Get student's payment history.
+    Staff can only see payments for students they have access to.
+    """
+    # First verify staff has access to this student
+    student = await get_student_by_id_for_staff(session, student_id, staff_user_id)
+    if not student:
+        raise NotFoundError("Student", str(student_id))
+    
+    # Build query for payment records
+    base_query = (
+        select(
+            StudentPayment,
+            Club.name.label("club_name"),
+            Tariff.name.label("tariff_name"),
+        )
+        .select_from(StudentPayment)
+        .outerjoin(Club, StudentPayment.club_id == Club.id)
+        .outerjoin(Tariff, StudentPayment.tariff_id == Tariff.id)
+        .where(StudentPayment.student_id == student_id)
+    )
+    
+    # Apply status filter
+    if status_filter:
+        base_query = base_query.where(StudentPayment.status == status_filter)
+    
+    # Count total
+    count_query = select(func.count()).select_from(
+        StudentPayment
+    ).where(StudentPayment.student_id == student_id)
+    
+    if status_filter:
+        count_query = count_query.where(StudentPayment.status == status_filter)
+    
+    total_result = await session.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # Apply pagination and ordering
+    query = base_query.order_by(StudentPayment.created_at.desc()).offset(skip).limit(limit)
+    
+    result = await session.execute(query)
+    rows = result.fetchall()
+    
+    # Transform to response
+    payments = []
+    for row in rows:
+        payment = row[0]
+        club_name = row[1]
+        tariff_name = row[2]
+        
+        # Determine operation type based on description or context
+        operation_type = "purchase"
+        if payment.description:
+            desc_lower = payment.description.lower()
+            if "продление" in desc_lower or "extend" in desc_lower or "renewal" in desc_lower:
+                operation_type = "renewal"
+            elif "возврат" in desc_lower or "refund" in desc_lower:
+                operation_type = "refund"
+        
+        payment_date = payment.payment_date or payment.created_at
+        if hasattr(payment_date, 'date'):
+            payment_date = payment_date.date()
+        
+        payments.append(StudentPaymentRecord(
+            id=payment.id,
+            date=payment_date,
+            amount=float(payment.amount),
+            currency=payment.currency or "KZT",
+            club_id=payment.club_id,
+            club_name=club_name,
+            tariff_id=payment.tariff_id,
+            tariff_name=tariff_name,
+            operation_type=operation_type,
+            status=payment.status.value if hasattr(payment.status, 'value') else str(payment.status),
+            payment_method=payment.payment_method.value if payment.payment_method and hasattr(payment.payment_method, 'value') else None,
+        ))
+    
+    return payments, total
+
+
+@db_operation
+async def get_student_payment_stats_for_staff(
+    session: AsyncSession,
+    student_id: int,
+    staff_user_id: int
+) -> StudentPaymentStats:
+    """Get payment statistics for a student."""
+    # Verify access
+    student = await get_student_by_id_for_staff(session, student_id, staff_user_id)
+    if not student:
+        raise NotFoundError("Student", str(student_id))
+    
+    # Total paid amount
+    paid_query = select(func.sum(StudentPayment.amount)).where(
+        and_(
+            StudentPayment.student_id == student_id,
+            StudentPayment.status == "paid"
+        )
+    )
+    paid_result = await session.execute(paid_query)
+    total_paid = float(paid_result.scalar() or 0)
+    
+    # Payments count
+    count_query = select(func.count()).select_from(StudentPayment).where(
+        and_(
+            StudentPayment.student_id == student_id,
+            StudentPayment.status == "paid"
+        )
+    )
+    count_result = await session.execute(count_query)
+    payments_count = count_result.scalar() or 0
+    
+    # Last payment date
+    last_payment_query = select(StudentPayment.payment_date).where(
+        and_(
+            StudentPayment.student_id == student_id,
+            StudentPayment.status == "paid"
+        )
+    ).order_by(StudentPayment.payment_date.desc()).limit(1)
+    last_result = await session.execute(last_payment_query)
+    last_payment = last_result.scalar_one_or_none()
+    
+    last_payment_date = None
+    if last_payment:
+        if hasattr(last_payment, 'date'):
+            last_payment_date = last_payment.date()
+        else:
+            last_payment_date = last_payment
+    
+    # Pending amount
+    pending_query = select(func.sum(StudentPayment.amount)).where(
+        and_(
+            StudentPayment.student_id == student_id,
+            StudentPayment.status == "pending"
+        )
+    )
+    pending_result = await session.execute(pending_query)
+    pending_amount = float(pending_result.scalar() or 0)
+    
+    return StudentPaymentStats(
+        total_paid=total_paid,
+        payments_count=payments_count,
+        last_payment_date=last_payment_date,
+        pending_amount=pending_amount,
+    )
