@@ -1,4 +1,4 @@
-"""Student Schedule Router - Endpoints for viewing training sessions"""
+"""Student Schedule Router - Endpoints for viewing and booking training sessions"""
 import math
 from datetime import date
 from fastapi import APIRouter, Depends, Query, status, Request
@@ -15,11 +15,20 @@ from app.students.crud.schedule import (
     get_all_available_sessions,
     get_trainers_for_student,
 )
+from app.students.crud.bookings import (
+    book_session,
+    cancel_booking,
+    join_waitlist,
+)
 from app.students.schemas.schedule import (
     SessionRead,
     SessionListResponse,
     TrainerInfo,
     ScheduleFilters,
+    BookSessionRequest,
+    BookSessionResponse,
+    CancelBookingRequest,
+    CancelBookingResponse,
 )
 
 router = APIRouter(prefix="/students/schedule", tags=["Student Schedule"])
@@ -112,3 +121,106 @@ async def get_trainers(
     trainers = await get_trainers_for_student(db, student.id)
     
     return trainers
+
+
+# ===== Booking Endpoints =====
+
+@router.post("/book", response_model=BookSessionResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
+async def book_training_session(
+    request: Request,
+    booking_request: BookSessionRequest,
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Book a training session.
+    
+    Reserves a spot for the student in the specified lesson.
+    
+    Requirements:
+    - Student must have an active membership in the club
+    - Lesson must be in the future
+    - Lesson must not be full
+    - Student must not already be booked
+    
+    Returns booking confirmation with booking_id.
+    """
+    student = await get_user_student_by_telegram_id(db, current_user.get("id"))
+    if not student:
+        raise NotFoundError("Student", "Please register first")
+    
+    result = await book_session(
+        db,
+        student_id=student.id,
+        lesson_id=booking_request.lesson_id,
+    )
+    
+    return result
+
+
+@router.post("/cancel", response_model=CancelBookingResponse)
+@limiter.limit("20/minute")
+async def cancel_training_booking(
+    request: Request,
+    cancel_request: CancelBookingRequest,
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Cancel a training session booking.
+    
+    Releases the student's spot in the specified lesson.
+    
+    Requirements:
+    - Student must have an existing booking
+    - Cancellation must be at least 1 hour before the session
+    
+    Note: If there are students on the waitlist, the first one will automatically
+    be moved to a confirmed booking.
+    """
+    student = await get_user_student_by_telegram_id(db, current_user.get("id"))
+    if not student:
+        raise NotFoundError("Student", "Please register first")
+    
+    result = await cancel_booking(
+        db,
+        student_id=student.id,
+        lesson_id=cancel_request.lesson_id,
+    )
+    
+    return result
+
+
+@router.post("/waitlist", response_model=BookSessionResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
+async def join_session_waitlist(
+    request: Request,
+    booking_request: BookSessionRequest,
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Join the waitlist for a full training session.
+    
+    Adds the student to the waitlist for the specified lesson.
+    
+    Requirements:
+    - Student must have an active membership in the club
+    - Student must not already be booked or on waitlist
+    
+    Returns confirmation with position in waitlist.
+    When a spot opens up, the first person in the waitlist will be
+    automatically booked.
+    """
+    student = await get_user_student_by_telegram_id(db, current_user.get("id"))
+    if not student:
+        raise NotFoundError("Student", "Please register first")
+    
+    result = await join_waitlist(
+        db,
+        student_id=student.id,
+        lesson_id=booking_request.lesson_id,
+    )
+    
+    return result

@@ -15,6 +15,7 @@ from app.staff.models.sections import Section
 from app.staff.models.clubs import Club
 from app.staff.models.users import UserStaff
 from app.staff.models.enrollments import StudentEnrollment, EnrollmentStatus
+from app.students.models.bookings import LessonBooking
 from app.students.schemas.schedule import (
     SessionRead,
     SessionStatus,
@@ -111,6 +112,41 @@ async def get_student_upcoming_sessions(
     result = await session.execute(lessons_query)
     rows = result.fetchall()
     
+    # Get all lesson IDs for booking queries
+    lesson_ids = [row[0].id for row in rows]
+    
+    # Get booking counts for all lessons
+    booking_counts = {}
+    if lesson_ids:
+        counts_query = (
+            select(LessonBooking.lesson_id, func.count(LessonBooking.id))
+            .where(
+                and_(
+                    LessonBooking.lesson_id.in_(lesson_ids),
+                    LessonBooking.status == "booked"
+                )
+            )
+            .group_by(LessonBooking.lesson_id)
+        )
+        counts_result = await session.execute(counts_query)
+        booking_counts = {row[0]: row[1] for row in counts_result.fetchall()}
+    
+    # Get student's bookings
+    student_bookings = {}
+    if lesson_ids:
+        student_booking_query = (
+            select(LessonBooking.lesson_id, LessonBooking.status)
+            .where(
+                and_(
+                    LessonBooking.student_id == student_id,
+                    LessonBooking.lesson_id.in_(lesson_ids),
+                    LessonBooking.status.in_(["booked", "waitlist"])
+                )
+            )
+        )
+        student_booking_result = await session.execute(student_booking_query)
+        student_bookings = {row[0]: row[1] for row in student_booking_result.fetchall()}
+    
     sessions = []
     for row in rows:
         lesson, group, section, club, coach = row
@@ -119,13 +155,19 @@ async def get_student_upcoming_sessions(
         if coach:
             coach_name = f"{coach.first_name} {coach.last_name or ''}".strip()
         
+        # Get booking info
+        participants_count = booking_counts.get(lesson.id, 0)
+        is_booked = student_bookings.get(lesson.id) == "booked"
+        is_in_waitlist = student_bookings.get(lesson.id) == "waitlist"
+        
         # Determine status
         status = SessionStatus.scheduled
         if lesson.status == "cancelled":
             status = SessionStatus.cancelled
-        elif group.capacity and group.capacity > 0:
-            # For simplicity, we assume not full unless we have booking data
-            pass
+        elif is_booked:
+            status = SessionStatus.booked
+        elif group.capacity and participants_count >= group.capacity:
+            status = SessionStatus.full
         
         sessions.append(SessionRead(
             id=lesson.id,
@@ -140,11 +182,11 @@ async def get_student_upcoming_sessions(
             time=lesson.planned_start_time.strftime("%H:%M") if lesson.planned_start_time else "00:00",
             duration_minutes=lesson.duration_minutes,
             location=lesson.location,
-            participants_count=0,  # Would need booking data
+            participants_count=participants_count,
             max_participants=group.capacity,
             status=status,
-            is_booked=False,  # Would need booking data
-            is_in_waitlist=False,
+            is_booked=is_booked,
+            is_in_waitlist=is_in_waitlist,
             notes=lesson.notes,
         ))
     
@@ -233,6 +275,41 @@ async def get_all_available_sessions(
     result = await session.execute(query)
     rows = result.fetchall()
     
+    # Get all lesson IDs for booking queries
+    lesson_ids = [row[0].id for row in rows]
+    
+    # Get booking counts for all lessons
+    booking_counts = {}
+    if lesson_ids:
+        counts_query = (
+            select(LessonBooking.lesson_id, func.count(LessonBooking.id))
+            .where(
+                and_(
+                    LessonBooking.lesson_id.in_(lesson_ids),
+                    LessonBooking.status == "booked"
+                )
+            )
+            .group_by(LessonBooking.lesson_id)
+        )
+        counts_result = await session.execute(counts_query)
+        booking_counts = {row[0]: row[1] for row in counts_result.fetchall()}
+    
+    # Get student's bookings
+    student_bookings = {}
+    if lesson_ids:
+        student_booking_query = (
+            select(LessonBooking.lesson_id, LessonBooking.status)
+            .where(
+                and_(
+                    LessonBooking.student_id == student_id,
+                    LessonBooking.lesson_id.in_(lesson_ids),
+                    LessonBooking.status.in_(["booked", "waitlist"])
+                )
+            )
+        )
+        student_booking_result = await session.execute(student_booking_query)
+        student_bookings = {row[0]: row[1] for row in student_booking_result.fetchall()}
+    
     sessions = []
     for row in rows:
         lesson, group, section, club, coach = row
@@ -241,8 +318,19 @@ async def get_all_available_sessions(
         if coach:
             coach_name = f"{coach.first_name} {coach.last_name or ''}".strip()
         
-        is_booked = lesson.group_id in enrolled_group_ids
-        status = SessionStatus.booked if is_booked else SessionStatus.scheduled
+        # Get booking info
+        participants_count = booking_counts.get(lesson.id, 0)
+        is_booked = student_bookings.get(lesson.id) == "booked"
+        is_in_waitlist = student_bookings.get(lesson.id) == "waitlist"
+        
+        # Determine status
+        status = SessionStatus.scheduled
+        if lesson.status == "cancelled":
+            status = SessionStatus.cancelled
+        elif is_booked:
+            status = SessionStatus.booked
+        elif group.capacity and participants_count >= group.capacity:
+            status = SessionStatus.full
         
         sessions.append(SessionRead(
             id=lesson.id,
@@ -257,11 +345,11 @@ async def get_all_available_sessions(
             time=lesson.planned_start_time.strftime("%H:%M") if lesson.planned_start_time else "00:00",
             duration_minutes=lesson.duration_minutes,
             location=lesson.location,
-            participants_count=0,
+            participants_count=participants_count,
             max_participants=group.capacity,
             status=status,
             is_booked=is_booked,
-            is_in_waitlist=False,
+            is_in_waitlist=is_in_waitlist,
             notes=lesson.notes,
         ))
     
