@@ -39,7 +39,7 @@ class Tariff(Base):
     sessions_count = Column(Integer, nullable=True)  # Number of sessions in pack
     validity_days = Column(Integer, nullable=True)   # Days the pack is valid
     
-    # Features included in tariff (stored as JSON array of strings)
+    # Features included in tariff (auto-migrated on startup)
     features = Column(JSON, nullable=False, default=list)
     
     # Status
