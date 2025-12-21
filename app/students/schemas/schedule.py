@@ -90,6 +90,26 @@ class CancelBookingResponse(BaseModel):
     message: str
 
 
+class FreezeBookingRequest(BaseModel):
+    """Request to freeze/excuse from a booking"""
+    lesson_id: int
+    note: Optional[str] = Field(None, max_length=500, description="Optional reason for freezing")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "lesson_id": 1,
+                "note": "Заболел"
+            }
+        }
+
+
+class FreezeBookingResponse(BaseModel):
+    """Response after freezing booking"""
+    success: bool
+    message: str
+
+
 class TrainerInfo(BaseModel):
     """Trainer information"""
     id: int
@@ -117,6 +137,8 @@ class ParticipantInfo(BaseModel):
     last_name: Optional[str] = None
     photo_url: Optional[str] = None
     is_current_user: bool = False
+    status: str = "booked"  # booked, excused
+    excuse_note: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -126,5 +148,7 @@ class SessionParticipantsResponse(BaseModel):
     """Response with list of session participants"""
     lesson_id: int
     participants: List[ParticipantInfo]
+    excused_participants: List[ParticipantInfo] = []
     total: int
+    excused_count: int = 0
     max_participants: Optional[int] = None

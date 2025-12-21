@@ -19,6 +19,7 @@ from app.students.crud.bookings import (
     book_session,
     cancel_booking,
     join_waitlist,
+    freeze_booking,
     get_lesson_participants,
 )
 from app.students.schemas.schedule import (
@@ -30,6 +31,8 @@ from app.students.schemas.schedule import (
     BookSessionResponse,
     CancelBookingRequest,
     CancelBookingResponse,
+    FreezeBookingRequest,
+    FreezeBookingResponse,
     ParticipantInfo,
     SessionParticipantsResponse,
 )
@@ -229,6 +232,40 @@ async def join_session_waitlist(
     return result
 
 
+@router.post("/freeze", response_model=FreezeBookingResponse)
+@limiter.limit("20/minute")
+async def freeze_training_booking(
+    request: Request,
+    freeze_request: FreezeBookingRequest,
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Freeze/excuse a training session booking.
+    
+    Marks that the student won't attend the session.
+    Unlike cancellation, the spot remains reserved but marked as excused.
+    
+    Requirements:
+    - Student must have an existing booking
+    - Lesson must not have started yet
+    
+    Optional note can be provided to explain the reason.
+    """
+    student = await get_user_student_by_telegram_id(db, current_user.get("id"))
+    if not student:
+        raise NotFoundError("Student", "Please register first")
+    
+    result = await freeze_booking(
+        db,
+        student_id=student.id,
+        lesson_id=freeze_request.lesson_id,
+        note=freeze_request.note,
+    )
+    
+    return result
+
+
 @router.get("/sessions/{lesson_id}/participants", response_model=SessionParticipantsResponse)
 @limiter.limit("30/minute")
 async def get_session_participants(
@@ -242,12 +279,13 @@ async def get_session_participants(
     
     Returns list of participants with their names and avatars.
     Current user is marked with is_current_user flag.
+    Includes both booked and excused (frozen) participants.
     """
     student = await get_user_student_by_telegram_id(db, current_user.get("id"))
     if not student:
         raise NotFoundError("Student", "Please register first")
     
-    participants, total, max_participants = await get_lesson_participants(
+    booked, excused, booked_count, excused_count, max_participants = await get_lesson_participants(
         db,
         lesson_id=lesson_id,
         current_student_id=student.id,
@@ -255,7 +293,9 @@ async def get_session_participants(
     
     return SessionParticipantsResponse(
         lesson_id=lesson_id,
-        participants=[ParticipantInfo(**p) for p in participants],
-        total=total,
+        participants=[ParticipantInfo(**p) for p in booked],
+        excused_participants=[ParticipantInfo(**p) for p in excused],
+        total=booked_count,
+        excused_count=excused_count,
         max_participants=max_participants,
     )
