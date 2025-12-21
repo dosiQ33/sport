@@ -26,17 +26,28 @@ class ClubSectionRead(BaseModel):
         from_attributes = True
 
 
+class TariffAccessInfo(BaseModel):
+    """Info about what's included in a tariff"""
+    id: int
+    name: str
+    type: str  # 'section' or 'group'
+
+
 class ClubTariffRead(BaseModel):
     """Tariff info for club details"""
     id: int
     name: str
     description: Optional[str] = None
-    type: str  # monthly, semi_annual, annual, session_pack
-    payment_type: str  # monthly, quarterly, annual
+    type: str  # full_club, full_section, single_group, multiple_groups (package type)
+    payment_type: str  # monthly, semi_annual, annual, session_pack
     price: float
     duration_days: Optional[int] = None
     sessions_count: Optional[int] = None
+    freeze_days_total: int = 0
     features: List[str] = []
+    # What's included in this tariff
+    included_sections: List[TariffAccessInfo] = []
+    included_groups: List[TariffAccessInfo] = []
     
     class Config:
         from_attributes = True

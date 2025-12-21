@@ -24,6 +24,7 @@ from app.students.schemas.clubs import (
     ClubCoachRead,
     ClubLocationRead,
     NearestClubResponse,
+    TariffAccessInfo,
 )
 
 
@@ -231,8 +232,59 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
     tariffs_result = await session.execute(tariffs_query)
     tariffs_data = tariffs_result.scalars().all()
 
-    tariffs = [
-        ClubTariffRead(
+    # Build lookups for section and group names
+    section_names_map = {s.id: s.name for s in sections_data}
+    group_names_map = {}
+    for s in sections_data:
+        for g in s.groups:
+            group_names_map[g.id] = g.name
+
+    # Map tariffs with resolved section/group names
+    tariffs = []
+    for t in tariffs_data:
+        # Resolve section IDs to names
+        included_sections = []
+        section_ids = t.section_ids or []
+        for sid in section_ids:
+            if sid in section_names_map:
+                included_sections.append(TariffAccessInfo(
+                    id=sid,
+                    name=section_names_map[sid],
+                    type='section'
+                ))
+        
+        # Resolve group IDs to names
+        included_groups = []
+        group_ids = t.group_ids or []
+        for gid in group_ids:
+            if gid in group_names_map:
+                included_groups.append(TariffAccessInfo(
+                    id=gid,
+                    name=group_names_map[gid],
+                    type='group'
+                ))
+        
+        # For full_club type, include all sections
+        if t.type == 'full_club':
+            included_sections = [
+                TariffAccessInfo(id=s.id, name=s.name, type='section')
+                for s in sections_data
+            ]
+        
+        # For full_section type with section_ids, resolve groups from those sections
+        if t.type == 'full_section' and section_ids:
+            for sid in section_ids:
+                section_obj = next((s for s in sections_data if s.id == sid), None)
+                if section_obj:
+                    for g in section_obj.groups:
+                        if g.id not in [ig.id for ig in included_groups]:
+                            included_groups.append(TariffAccessInfo(
+                                id=g.id,
+                                name=g.name,
+                                type='group'
+                            ))
+        
+        tariffs.append(ClubTariffRead(
             id=t.id,
             name=t.name,
             description=t.description,
@@ -241,10 +293,11 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
             price=float(t.price),
             duration_days=t.validity_days,
             sessions_count=t.sessions_count,
+            freeze_days_total=t.freeze_days_total or 0,
             features=t.features or [],
-        )
-        for t in tariffs_data
-    ]
+            included_sections=included_sections,
+            included_groups=included_groups,
+        ))
 
     # Count sections and students
     sections_count = len(sections)
