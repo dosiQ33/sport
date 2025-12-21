@@ -30,7 +30,7 @@ class TariffBase(BaseModel):
     group_ids: List[int] = Field(default_factory=list)
     sessions_count: Optional[int] = Field(None, ge=1, le=1000)
     validity_days: Optional[int] = Field(None, ge=1, le=365)
-    features: List[str] = Field(default_factory=list, description="List of included features")
+    # NOTE: features will be stored in DB later, for now accepts but ignores
     active: bool = Field(default=True)
 
 
@@ -51,7 +51,7 @@ class TariffUpdate(BaseModel):
     group_ids: Optional[List[int]] = None
     sessions_count: Optional[int] = Field(None, ge=1, le=1000)
     validity_days: Optional[int] = Field(None, ge=1, le=365)
-    features: Optional[List[str]] = None
+    # NOTE: features will be stored in DB later
     active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -60,6 +60,8 @@ class TariffUpdate(BaseModel):
 class TariffRead(TariffBase):
     """Schema for reading a tariff"""
     id: int
+    # Features - returns empty until DB column is added
+    features: List[str] = Field(default_factory=list)
     created_by_id: Optional[int] = None
     created_by: Optional[TariffCreatorInfo] = None
     created_at: datetime
