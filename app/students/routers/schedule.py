@@ -20,6 +20,7 @@ from app.students.crud.bookings import (
     cancel_booking,
     join_waitlist,
     freeze_booking,
+    unfreeze_booking,
     get_lesson_participants,
 )
 from app.students.schemas.schedule import (
@@ -33,6 +34,8 @@ from app.students.schemas.schedule import (
     CancelBookingResponse,
     FreezeBookingRequest,
     FreezeBookingResponse,
+    UnfreezeBookingRequest,
+    UnfreezeBookingResponse,
     ParticipantInfo,
     SessionParticipantsResponse,
 )
@@ -241,13 +244,14 @@ async def freeze_training_booking(
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Freeze/excuse a training session booking.
+    Freeze/excuse a training session.
     
     Marks that the student won't attend the session.
-    Unlike cancellation, the spot remains reserved but marked as excused.
+    Can be called with or without an existing booking.
+    If no booking exists, creates one with "excused" status.
     
     Requirements:
-    - Student must have an existing booking
+    - Student must have an active membership in the club
     - Lesson must not have started yet
     
     Optional note can be provided to explain the reason.
@@ -261,6 +265,36 @@ async def freeze_training_booking(
         student_id=student.id,
         lesson_id=freeze_request.lesson_id,
         note=freeze_request.note,
+    )
+    
+    return result
+
+
+@router.post("/unfreeze", response_model=UnfreezeBookingResponse)
+@limiter.limit("20/minute")
+async def unfreeze_training_booking(
+    request: Request,
+    unfreeze_request: UnfreezeBookingRequest,
+    current_user: Dict[str, Any] = Depends(get_current_student_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Unfreeze a training session booking.
+    
+    Changes status from "excused" back to "booked".
+    
+    Requirements:
+    - Student must have an excused booking
+    - Lesson must not have started yet
+    """
+    student = await get_user_student_by_telegram_id(db, current_user.get("id"))
+    if not student:
+        raise NotFoundError("Student", "Please register first")
+    
+    result = await unfreeze_booking(
+        db,
+        student_id=student.id,
+        lesson_id=unfreeze_request.lesson_id,
     )
     
     return result

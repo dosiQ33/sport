@@ -46,6 +46,7 @@ class SessionRead(BaseModel):
     status: SessionStatus
     is_booked: bool = False
     is_in_waitlist: bool = False
+    is_excused: bool = False  # True if student marked they won't attend
     
     # Notes
     notes: Optional[str] = None
@@ -106,6 +107,17 @@ class FreezeBookingRequest(BaseModel):
 
 class FreezeBookingResponse(BaseModel):
     """Response after freezing booking"""
+    success: bool
+    message: str
+
+
+class UnfreezeBookingRequest(BaseModel):
+    """Request to unfreeze a booking"""
+    lesson_id: int
+
+
+class UnfreezeBookingResponse(BaseModel):
+    """Response after unfreezing booking"""
     success: bool
     message: str
 

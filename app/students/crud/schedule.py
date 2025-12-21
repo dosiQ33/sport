@@ -131,7 +131,7 @@ async def get_student_upcoming_sessions(
         counts_result = await session.execute(counts_query)
         booking_counts = {row[0]: row[1] for row in counts_result.fetchall()}
     
-    # Get student's bookings
+    # Get student's bookings (including excused)
     student_bookings = {}
     if lesson_ids:
         student_booking_query = (
@@ -140,7 +140,7 @@ async def get_student_upcoming_sessions(
                 and_(
                     LessonBooking.student_id == student_id,
                     LessonBooking.lesson_id.in_(lesson_ids),
-                    LessonBooking.status.in_(["booked", "waitlist"])
+                    LessonBooking.status.in_(["booked", "waitlist", "excused"])
                 )
             )
         )
@@ -157,8 +157,10 @@ async def get_student_upcoming_sessions(
         
         # Get booking info
         participants_count = booking_counts.get(lesson.id, 0)
-        is_booked = student_bookings.get(lesson.id) == "booked"
-        is_in_waitlist = student_bookings.get(lesson.id) == "waitlist"
+        booking_status = student_bookings.get(lesson.id)
+        is_booked = booking_status == "booked"
+        is_in_waitlist = booking_status == "waitlist"
+        is_excused = booking_status == "excused"
         
         # Determine status
         status = SessionStatus.scheduled
@@ -187,6 +189,7 @@ async def get_student_upcoming_sessions(
             status=status,
             is_booked=is_booked,
             is_in_waitlist=is_in_waitlist,
+            is_excused=is_excused,
             notes=lesson.notes,
         ))
     
@@ -294,7 +297,7 @@ async def get_all_available_sessions(
         counts_result = await session.execute(counts_query)
         booking_counts = {row[0]: row[1] for row in counts_result.fetchall()}
     
-    # Get student's bookings
+    # Get student's bookings (including excused)
     student_bookings = {}
     if lesson_ids:
         student_booking_query = (
@@ -303,7 +306,7 @@ async def get_all_available_sessions(
                 and_(
                     LessonBooking.student_id == student_id,
                     LessonBooking.lesson_id.in_(lesson_ids),
-                    LessonBooking.status.in_(["booked", "waitlist"])
+                    LessonBooking.status.in_(["booked", "waitlist", "excused"])
                 )
             )
         )
@@ -320,8 +323,10 @@ async def get_all_available_sessions(
         
         # Get booking info
         participants_count = booking_counts.get(lesson.id, 0)
-        is_booked = student_bookings.get(lesson.id) == "booked"
-        is_in_waitlist = student_bookings.get(lesson.id) == "waitlist"
+        booking_status = student_bookings.get(lesson.id)
+        is_booked = booking_status == "booked"
+        is_in_waitlist = booking_status == "waitlist"
+        is_excused = booking_status == "excused"
         
         # Determine status
         status = SessionStatus.scheduled
@@ -350,6 +355,7 @@ async def get_all_available_sessions(
             status=status,
             is_booked=is_booked,
             is_in_waitlist=is_in_waitlist,
+            is_excused=is_excused,
             notes=lesson.notes,
         ))
     
