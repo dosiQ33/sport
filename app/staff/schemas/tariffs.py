@@ -30,6 +30,7 @@ class TariffBase(BaseModel):
     group_ids: List[int] = Field(default_factory=list)
     sessions_count: Optional[int] = Field(None, ge=1, le=1000)
     validity_days: Optional[int] = Field(None, ge=1, le=365)
+    features: List[str] = Field(default_factory=list, description="List of included features")
     active: bool = Field(default=True)
 
 
@@ -50,6 +51,7 @@ class TariffUpdate(BaseModel):
     group_ids: Optional[List[int]] = None
     sessions_count: Optional[int] = Field(None, ge=1, le=1000)
     validity_days: Optional[int] = Field(None, ge=1, le=365)
+    features: Optional[List[str]] = None
     active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)

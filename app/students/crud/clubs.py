@@ -241,7 +241,7 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
             price=float(t.price),
             duration_days=t.validity_days,
             sessions_count=t.sessions_count,
-            features=[],  # Can be extended with features later
+            features=t.features or [],
         )
         for t in tariffs_data
     ]
