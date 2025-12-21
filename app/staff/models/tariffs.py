@@ -39,6 +39,9 @@ class Tariff(Base):
     sessions_count = Column(Integer, nullable=True)  # Number of sessions in pack
     validity_days = Column(Integer, nullable=True)   # Days the pack is valid
     
+    # Freeze days available for this tariff (auto-migrated on startup)
+    freeze_days_total = Column(Integer, nullable=False, default=0)
+    
     # Features included in tariff (auto-migrated on startup)
     features = Column(JSON, nullable=False, default=list)
     

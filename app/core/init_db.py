@@ -19,17 +19,11 @@ async def run_migrations():
             "check": "SELECT column_name FROM information_schema.columns WHERE table_name='tariffs' AND column_name='features'",
             "apply": "ALTER TABLE tariffs ADD COLUMN features JSONB NOT NULL DEFAULT '[]'",
         },
-        # Add excuse_note column to lesson_bookings table
+        # Add freeze_days_total column to tariffs table
         {
-            "name": "add_lesson_bookings_excuse_note_column",
-            "check": "SELECT column_name FROM information_schema.columns WHERE table_name='lesson_bookings' AND column_name='excuse_note'",
-            "apply": "ALTER TABLE lesson_bookings ADD COLUMN excuse_note TEXT",
-        },
-        # Add excused_at column to lesson_bookings table
-        {
-            "name": "add_lesson_bookings_excused_at_column",
-            "check": "SELECT column_name FROM information_schema.columns WHERE table_name='lesson_bookings' AND column_name='excused_at'",
-            "apply": "ALTER TABLE lesson_bookings ADD COLUMN excused_at TIMESTAMP WITH TIME ZONE",
+            "name": "add_tariffs_freeze_days_total_column",
+            "check": "SELECT column_name FROM information_schema.columns WHERE table_name='tariffs' AND column_name='freeze_days_total'",
+            "apply": "ALTER TABLE tariffs ADD COLUMN freeze_days_total INTEGER NOT NULL DEFAULT 0",
         },
     ]
     

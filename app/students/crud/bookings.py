@@ -18,8 +18,6 @@ from app.students.models.bookings import LessonBooking
 from app.students.schemas.schedule import (
     BookSessionResponse,
     CancelBookingResponse,
-    FreezeBookingResponse,
-    UnfreezeBookingResponse,
 )
 
 
@@ -227,173 +225,6 @@ async def cancel_booking(
 
 
 @db_operation
-async def freeze_booking(
-    session: AsyncSession,
-    student_id: int,
-    lesson_id: int,
-    note: Optional[str] = None,
-) -> FreezeBookingResponse:
-    """
-    Freeze/excuse a student for a training session - mark that they won't attend.
-    Can be called even without an existing booking (will create one with "excused" status).
-    
-    Validates:
-    - Lesson exists and is not cancelled
-    - Student has active enrollment in the lesson's group
-    - Lesson hasn't started yet
-    """
-    # Get lesson with group info
-    lesson_query = (
-        select(Lesson, Group)
-        .select_from(Lesson)
-        .join(Group, Lesson.group_id == Group.id)
-        .where(Lesson.id == lesson_id)
-    )
-    lesson_result = await session.execute(lesson_query)
-    lesson_row = lesson_result.first()
-    
-    if not lesson_row:
-        raise NotFoundError("Lesson", str(lesson_id))
-    
-    lesson, group = lesson_row
-    
-    # Check lesson is not cancelled
-    if lesson.status == "cancelled":
-        raise ValidationError("Занятие отменено")
-    
-    # Check lesson is in the future
-    today = date.today()
-    if lesson.planned_date < today:
-        raise ValidationError("Нельзя заморозить прошедшее занятие")
-    
-    # Check if lesson hasn't started yet
-    lesson_datetime = datetime.combine(lesson.planned_date, lesson.planned_start_time)
-    now = datetime.now()
-    
-    if now >= lesson_datetime:
-        raise ValidationError("Нельзя заморозить запись после начала занятия")
-    
-    # Check student has active enrollment in this group's club
-    enrollment_query = (
-        select(StudentEnrollment)
-        .join(Group, StudentEnrollment.group_id == Group.id)
-        .join(Section, Group.section_id == Section.id)
-        .where(
-            and_(
-                StudentEnrollment.student_id == student_id,
-                Section.club_id == (
-                    select(Section.club_id)
-                    .select_from(Group)
-                    .join(Section, Group.section_id == Section.id)
-                    .where(Group.id == lesson.group_id)
-                    .scalar_subquery()
-                ),
-                StudentEnrollment.status.in_([EnrollmentStatus.active, EnrollmentStatus.new])
-            )
-        )
-    )
-    enrollment_result = await session.execute(enrollment_query)
-    enrollment = enrollment_result.scalar_one_or_none()
-    
-    if not enrollment:
-        raise ValidationError("У вас нет активного абонемента в этом клубе")
-    
-    # Check for existing booking
-    existing_query = select(LessonBooking).where(
-        and_(
-            LessonBooking.student_id == student_id,
-            LessonBooking.lesson_id == lesson_id,
-        )
-    )
-    existing_result = await session.execute(existing_query)
-    existing_booking = existing_result.scalar_one_or_none()
-    
-    if existing_booking:
-        if existing_booking.status == "excused":
-            raise ValidationError("Вы уже отметили что не придёте")
-        # Update existing booking to excused
-        existing_booking.status = "excused"
-        existing_booking.excuse_note = note
-        existing_booking.excused_at = datetime.now()
-        await session.commit()
-        return FreezeBookingResponse(
-            success=True,
-            message="Вы отметили, что не сможете прийти на занятие"
-        )
-    
-    # Create new booking with excused status
-    booking = LessonBooking(
-        student_id=student_id,
-        lesson_id=lesson_id,
-        status="excused",
-        excuse_note=note,
-        excused_at=datetime.now(),
-    )
-    session.add(booking)
-    await session.commit()
-    
-    return FreezeBookingResponse(
-        success=True,
-        message="Вы отметили, что не сможете прийти на занятие"
-    )
-
-
-@db_operation
-async def unfreeze_booking(
-    session: AsyncSession,
-    student_id: int,
-    lesson_id: int,
-) -> UnfreezeBookingResponse:
-    """
-    Unfreeze a student's booking - change from excused back to booked.
-    
-    Validates:
-    - Booking exists with 'excused' status
-    - Lesson hasn't started yet
-    """
-    # Get booking
-    booking_query = select(LessonBooking).where(
-        and_(
-            LessonBooking.student_id == student_id,
-            LessonBooking.lesson_id == lesson_id,
-            LessonBooking.status == "excused"
-        )
-    )
-    booking_result = await session.execute(booking_query)
-    booking = booking_result.scalar_one_or_none()
-    
-    if not booking:
-        raise NotFoundError("Frozen booking", f"student={student_id}, lesson={lesson_id}")
-    
-    # Get lesson to check time
-    lesson_query = select(Lesson).where(Lesson.id == lesson_id)
-    lesson_result = await session.execute(lesson_query)
-    lesson = lesson_result.scalar_one_or_none()
-    
-    if not lesson:
-        raise NotFoundError("Lesson", str(lesson_id))
-    
-    # Check if lesson hasn't started yet
-    lesson_datetime = datetime.combine(lesson.planned_date, lesson.planned_start_time)
-    now = datetime.now()
-    
-    if now >= lesson_datetime:
-        raise ValidationError("Нельзя изменить статус после начала занятия")
-    
-    # Unfreeze booking - change to booked
-    booking.status = "booked"
-    booking.excuse_note = None
-    booking.excused_at = None
-    
-    await session.commit()
-    
-    return UnfreezeBookingResponse(
-        success=True,
-        message="Вы снова записаны на занятие"
-    )
-
-
-@db_operation
 async def join_waitlist(
     session: AsyncSession,
     student_id: int,
@@ -553,11 +384,11 @@ async def get_lesson_participants(
     session: AsyncSession,
     lesson_id: int,
     current_student_id: int,
-) -> Tuple[List[dict], List[dict], int, int, Optional[int]]:
+) -> Tuple[List[dict], int, Optional[int]]:
     """
     Get list of participants for a lesson.
     
-    Returns: (booked_participants, excused_participants, booked_count, excused_count, max_participants)
+    Returns: (participants_list, total_count, max_participants)
     """
     from app.students.models.users import UserStudent
     
@@ -577,15 +408,13 @@ async def get_lesson_participants(
     lesson, group = lesson_row
     max_participants = group.capacity
     
-    # Get all booked and excused participants
+    # Get all booked participants
     participants_query = (
         select(
             UserStudent.id,
             UserStudent.first_name,
             UserStudent.last_name,
             UserStudent.photo_url,
-            LessonBooking.status,
-            LessonBooking.excuse_note,
             LessonBooking.created_at
         )
         .select_from(LessonBooking)
@@ -593,7 +422,7 @@ async def get_lesson_participants(
         .where(
             and_(
                 LessonBooking.lesson_id == lesson_id,
-                LessonBooking.status.in_(["booked", "excused"])
+                LessonBooking.status == "booked"
             )
         )
         .order_by(LessonBooking.created_at.asc())
@@ -602,23 +431,14 @@ async def get_lesson_participants(
     result = await session.execute(participants_query)
     rows = result.fetchall()
     
-    booked_participants = []
-    excused_participants = []
-    
+    participants = []
     for row in rows:
-        participant = {
+        participants.append({
             "id": row[0],
             "first_name": row[1],
             "last_name": row[2],
             "photo_url": row[3],
-            "is_current_user": row[0] == current_student_id,
-            "status": row[4],
-            "excuse_note": row[5],
-        }
-        
-        if row[4] == "booked":
-            booked_participants.append(participant)
-        else:
-            excused_participants.append(participant)
+            "is_current_user": row[0] == current_student_id
+        })
     
-    return booked_participants, excused_participants, len(booked_participants), len(excused_participants), max_participants
+    return participants, len(participants), max_participants

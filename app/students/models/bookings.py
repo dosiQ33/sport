@@ -6,7 +6,6 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Boolean,
-    Text,
     Index,
     UniqueConstraint,
 )
@@ -27,7 +26,7 @@ class LessonBooking(Base):
     # Link to lesson
     lesson_id = Column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False, index=True)
     
-    # Status: booked, cancelled, waitlist, excused (frozen)
+    # Status: booked, cancelled, waitlist
     status = Column(String(20), default="booked", nullable=False, index=True)
     
     # For waitlist - position in queue
@@ -36,14 +35,10 @@ class LessonBooking(Base):
     # Flag to track if student was notified when spot opened
     notified = Column(Boolean, default=False)
     
-    # Excuse/freeze note - optional reason when student freezes their booking
-    excuse_note = Column(Text, nullable=True)
-    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
-    excused_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
     student = relationship("UserStudent", backref="lesson_bookings")

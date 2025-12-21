@@ -30,6 +30,7 @@ class TariffBase(BaseModel):
     group_ids: List[int] = Field(default_factory=list)
     sessions_count: Optional[int] = Field(None, ge=1, le=1000)
     validity_days: Optional[int] = Field(None, ge=1, le=365)
+    freeze_days_total: int = Field(default=0, ge=0, le=90, description="Available freeze days for this tariff")
     features: List[str] = Field(default_factory=list, description="List of included features")
     active: bool = Field(default=True)
 
@@ -51,6 +52,7 @@ class TariffUpdate(BaseModel):
     group_ids: Optional[List[int]] = None
     sessions_count: Optional[int] = Field(None, ge=1, le=1000)
     validity_days: Optional[int] = Field(None, ge=1, le=365)
+    freeze_days_total: Optional[int] = Field(None, ge=0, le=90)
     features: Optional[List[str]] = None
     active: Optional[bool] = None
 
