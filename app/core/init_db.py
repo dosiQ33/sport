@@ -1,13 +1,41 @@
 import asyncio
 import logging
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from app.core.database import async_session, DatabaseManager, db_operation, engine, Base
 from app.core.exceptions import DatabaseError, ConfigurationError
 from app.staff.models.roles import Role, RoleType
 
 logger = logging.getLogger(__name__)
 db_manager = DatabaseManager()
+
+
+async def run_migrations():
+    """Run pending database migrations (adds missing columns)"""
+    migrations = [
+        # Add features column to tariffs table
+        {
+            "name": "add_tariffs_features_column",
+            "check": "SELECT column_name FROM information_schema.columns WHERE table_name='tariffs' AND column_name='features'",
+            "apply": "ALTER TABLE tariffs ADD COLUMN features JSONB NOT NULL DEFAULT '[]'",
+        },
+    ]
+    
+    async with engine.begin() as conn:
+        for migration in migrations:
+            try:
+                # Check if migration is needed
+                result = await conn.execute(text(migration["check"]))
+                exists = result.fetchone() is not None
+                
+                if not exists:
+                    logger.info(f"Applying migration: {migration['name']}")
+                    await conn.execute(text(migration["apply"]))
+                    logger.info(f"✅ Migration applied: {migration['name']}")
+                else:
+                    logger.debug(f"Migration already applied: {migration['name']}")
+            except Exception as e:
+                logger.warning(f"Migration {migration['name']} skipped: {e}")
 
 
 @db_operation
@@ -56,6 +84,10 @@ async def init_database():
         # Create all tables with retry mechanism
         await db_manager.create_tables()
         logger.info("✅ Database tables created/verified")
+
+        # Run pending migrations (add missing columns, etc.)
+        await run_migrations()
+        logger.info("✅ Database migrations checked/applied")
 
         # Create initial data
         await create_initial_roles()
