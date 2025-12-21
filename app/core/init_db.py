@@ -25,6 +25,12 @@ async def run_migrations():
             "check": "SELECT column_name FROM information_schema.columns WHERE table_name='tariffs' AND column_name='freeze_days_total'",
             "apply": "ALTER TABLE tariffs ADD COLUMN freeze_days_total INTEGER NOT NULL DEFAULT 0",
         },
+        # Add 'scheduled' value to enrollmentstatus enum
+        {
+            "name": "add_scheduled_to_enrollmentstatus_enum",
+            "check": "SELECT 1 FROM pg_enum WHERE enumlabel = 'scheduled' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'enrollmentstatus')",
+            "apply": "ALTER TYPE enrollmentstatus ADD VALUE IF NOT EXISTS 'scheduled'",
+        },
     ]
     
     async with engine.begin() as conn:
