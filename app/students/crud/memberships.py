@@ -51,7 +51,8 @@ async def get_student_memberships(
             StudentEnrollment.status.in_([
                 EnrollmentStatus.active,
                 EnrollmentStatus.frozen,
-                EnrollmentStatus.new
+                EnrollmentStatus.new,
+                EnrollmentStatus.scheduled
             ])
         )
     

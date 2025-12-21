@@ -12,6 +12,7 @@ class MembershipStatus(str, Enum):
     expired = "expired"
     cancelled = "cancelled"
     new = "new"
+    scheduled = "scheduled"  # Scheduled to start after current membership ends
 
 
 class MembershipRead(BaseModel):

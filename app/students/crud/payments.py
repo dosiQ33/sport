@@ -209,9 +209,13 @@ async def complete_payment(
     payment_id: int
 ) -> CompletePaymentResponse:
     """
-    Complete a payment and create student enrollment.
-    This is a mock function that simulates successful payment completion.
-    In production, this would be called by a payment gateway webhook.
+    Complete a payment and create/extend student enrollment.
+    
+    Logic:
+    1. If buying same tariff with same group → extend current membership
+    2. If buying different tariff:
+       - If no active membership in club → start today
+       - If active membership exists → schedule to start after current ends
     """
     from datetime import timedelta
     
@@ -248,7 +252,6 @@ async def complete_payment(
         raise NotFoundError("Tariff", str(payment.tariff_id))
     
     # Find a group to enroll the student in
-    # First, try to find a group in the club associated with the tariff
     group = None
     
     # If tariff has specific group_ids, use the first one
@@ -275,47 +278,103 @@ async def complete_payment(
         group = group_result.scalar_one_or_none()
     
     enrollment_id = None
+    message = "Payment completed successfully."
     
     if group:
-        # Check if student is already enrolled in this group
-        existing_enrollment_query = select(StudentEnrollment).where(
+        # Get validity days from tariff (default 30)
+        validity_days = tariff.validity_days or 30
+        freeze_days = tariff.freeze_days_total or 0
+        
+        # Check if student has an existing active enrollment with SAME tariff in SAME group
+        same_tariff_enrollment_query = select(StudentEnrollment).where(
             and_(
                 StudentEnrollment.student_id == student_id,
                 StudentEnrollment.group_id == group.id,
-                StudentEnrollment.status.in_([EnrollmentStatus.active, EnrollmentStatus.new])
+                StudentEnrollment.tariff_id == tariff.id,
+                StudentEnrollment.status.in_([
+                    EnrollmentStatus.active, 
+                    EnrollmentStatus.new,
+                    EnrollmentStatus.frozen
+                ])
             )
         )
-        existing_result = await session.execute(existing_enrollment_query)
-        existing_enrollment = existing_result.scalar_one_or_none()
+        same_tariff_result = await session.execute(same_tariff_enrollment_query)
+        same_tariff_enrollment = same_tariff_result.scalar_one_or_none()
         
-        if existing_enrollment:
-            # Extend the existing enrollment
-            if tariff.validity_days:
-                existing_enrollment.end_date = existing_enrollment.end_date + timedelta(days=tariff.validity_days)
-            else:
-                existing_enrollment.end_date = existing_enrollment.end_date + timedelta(days=30)
-            enrollment_id = existing_enrollment.id
+        if same_tariff_enrollment:
+            # CASE 1: Same tariff, same group → EXTEND the existing membership
+            same_tariff_enrollment.end_date = same_tariff_enrollment.end_date + timedelta(days=validity_days)
+            # Add freeze days to available
+            same_tariff_enrollment.freeze_days_total = (same_tariff_enrollment.freeze_days_total or 0) + freeze_days
+            enrollment_id = same_tariff_enrollment.id
+            message = f"Membership extended by {validity_days} days."
         else:
-            # Create new enrollment
-            start_date = date.today()
-            end_date = start_date + timedelta(days=tariff.validity_days or 30)
-            
-            enrollment = StudentEnrollment(
-                student_id=student_id,
-                group_id=group.id,
-                status=EnrollmentStatus.new,
-                start_date=start_date,
-                end_date=end_date,
-                tariff_id=tariff.id,
-                tariff_name=tariff.name,
-                price=tariff.price,
-                freeze_days_total=7,  # Default freeze days
-                freeze_days_used=0,
-                is_active=True,
+            # Check if student has ANY active membership in this CLUB
+            club_enrollment_query = (
+                select(StudentEnrollment)
+                .join(Group, StudentEnrollment.group_id == Group.id)
+                .join(Section, Group.section_id == Section.id)
+                .where(
+                    and_(
+                        StudentEnrollment.student_id == student_id,
+                        Section.club_id == payment.club_id,
+                        StudentEnrollment.status.in_([
+                            EnrollmentStatus.active, 
+                            EnrollmentStatus.new,
+                            EnrollmentStatus.frozen
+                        ])
+                    )
+                )
+                .order_by(StudentEnrollment.end_date.desc())
             )
-            session.add(enrollment)
-            await session.flush()
-            enrollment_id = enrollment.id
+            club_enrollment_result = await session.execute(club_enrollment_query)
+            active_club_enrollment = club_enrollment_result.scalar_one_or_none()
+            
+            if active_club_enrollment:
+                # CASE 2: Different tariff but has active membership → SCHEDULE after current ends
+                # New membership starts the day after current one ends
+                start_date = active_club_enrollment.end_date + timedelta(days=1)
+                end_date = start_date + timedelta(days=validity_days)
+                
+                enrollment = StudentEnrollment(
+                    student_id=student_id,
+                    group_id=group.id,
+                    status=EnrollmentStatus.scheduled,  # Scheduled to start later
+                    start_date=start_date,
+                    end_date=end_date,
+                    tariff_id=tariff.id,
+                    tariff_name=tariff.name,
+                    price=tariff.price,
+                    freeze_days_total=freeze_days,
+                    freeze_days_used=0,
+                    is_active=True,
+                )
+                session.add(enrollment)
+                await session.flush()
+                enrollment_id = enrollment.id
+                message = f"Membership scheduled to start on {start_date.strftime('%d.%m.%Y')} after current membership ends."
+            else:
+                # CASE 3: No active membership in club → START immediately
+                start_date = date.today()
+                end_date = start_date + timedelta(days=validity_days)
+                
+                enrollment = StudentEnrollment(
+                    student_id=student_id,
+                    group_id=group.id,
+                    status=EnrollmentStatus.new,
+                    start_date=start_date,
+                    end_date=end_date,
+                    tariff_id=tariff.id,
+                    tariff_name=tariff.name,
+                    price=tariff.price,
+                    freeze_days_total=freeze_days,
+                    freeze_days_used=0,
+                    is_active=True,
+                )
+                session.add(enrollment)
+                await session.flush()
+                enrollment_id = enrollment.id
+                message = "Membership activated."
     
     # Update payment status
     payment.status = PaymentStatus.paid
@@ -328,5 +387,5 @@ async def complete_payment(
         success=True,
         payment_id=payment_id,
         enrollment_id=enrollment_id,
-        message="Payment completed successfully. Membership activated."
+        message=message
     )

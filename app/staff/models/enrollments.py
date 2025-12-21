@@ -23,6 +23,7 @@ class EnrollmentStatus(str, Enum):
     expired = "expired"        # Истек
     cancelled = "cancelled"    # Отменен
     new = "new"                # Новый (< 14 дней)
+    scheduled = "scheduled"    # Запланирован (начнется после текущего абонемента)
 
 
 class StudentEnrollment(Base):
