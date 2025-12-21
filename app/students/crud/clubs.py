@@ -234,18 +234,30 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
 
     # Build lookups for section and group names
     section_names_map = {s.id: s.name for s in sections_data}
-    group_names_map = {}
-    for s in sections_data:
-        for g in s.groups:
-            group_names_map[g.id] = g.name
+    
+    # Fetch all groups for this club's sections (separate query to avoid lazy loading)
+    groups_query = (
+        select(Group)
+        .where(Group.section_id.in_([s.id for s in sections_data]))
+    )
+    groups_result = await session.execute(groups_query)
+    groups_data = groups_result.scalars().all()
+    
+    group_names_map = {g.id: g.name for g in groups_data}
+    # Map section_id to list of groups
+    section_groups_map = {}
+    for g in groups_data:
+        if g.section_id not in section_groups_map:
+            section_groups_map[g.section_id] = []
+        section_groups_map[g.section_id].append(g)
 
     # Map tariffs with resolved section/group names
     tariffs = []
     for t in tariffs_data:
         # Resolve section IDs to names
         included_sections = []
-        section_ids = t.section_ids or []
-        for sid in section_ids:
+        tariff_section_ids = t.section_ids or []
+        for sid in tariff_section_ids:
             if sid in section_names_map:
                 included_sections.append(TariffAccessInfo(
                     id=sid,
@@ -255,8 +267,8 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
         
         # Resolve group IDs to names
         included_groups = []
-        group_ids = t.group_ids or []
-        for gid in group_ids:
+        tariff_group_ids = t.group_ids or []
+        for gid in tariff_group_ids:
             if gid in group_names_map:
                 included_groups.append(TariffAccessInfo(
                     id=gid,
@@ -272,17 +284,16 @@ async def get_club_details(session: AsyncSession, club_id: int) -> ClubDetailRea
             ]
         
         # For full_section type with section_ids, resolve groups from those sections
-        if t.type == 'full_section' and section_ids:
-            for sid in section_ids:
-                section_obj = next((s for s in sections_data if s.id == sid), None)
-                if section_obj:
-                    for g in section_obj.groups:
-                        if g.id not in [ig.id for ig in included_groups]:
-                            included_groups.append(TariffAccessInfo(
-                                id=g.id,
-                                name=g.name,
-                                type='group'
-                            ))
+        if t.type == 'full_section' and tariff_section_ids:
+            for sid in tariff_section_ids:
+                section_groups = section_groups_map.get(sid, [])
+                for g in section_groups:
+                    if g.id not in [ig.id for ig in included_groups]:
+                        included_groups.append(TariffAccessInfo(
+                            id=g.id,
+                            name=g.name,
+                            type='group'
+                        ))
         
         tariffs.append(ClubTariffRead(
             id=t.id,
