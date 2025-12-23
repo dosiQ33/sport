@@ -331,6 +331,29 @@ async def complete_payment(
             active_club_enrollment = club_enrollment_result.scalar_one_or_none()
             
             if active_club_enrollment:
+                # Check if there's already a scheduled membership in this club
+                # Limit: only 1 scheduled membership per club allowed
+                scheduled_check_query = (
+                    select(StudentEnrollment)
+                    .join(Group, StudentEnrollment.group_id == Group.id)
+                    .join(Section, Group.section_id == Section.id)
+                    .where(
+                        and_(
+                            StudentEnrollment.student_id == student_id,
+                            Section.club_id == payment.club_id,
+                            StudentEnrollment.status == EnrollmentStatus.scheduled
+                        )
+                    )
+                )
+                scheduled_result = await session.execute(scheduled_check_query)
+                existing_scheduled = scheduled_result.scalar_one_or_none()
+                
+                if existing_scheduled:
+                    raise ValidationError(
+                        "You already have a scheduled membership for this club. "
+                        "Only one scheduled membership is allowed per club."
+                    )
+                
                 # CASE 2: Different tariff but has active membership → SCHEDULE after current ends
                 # New membership starts the day after current one ends
                 start_date = active_club_enrollment.end_date + timedelta(days=1)

@@ -246,6 +246,30 @@ async def freeze_student_membership(
     enrollment.freeze_days_used = (enrollment.freeze_days_used or 0) + freeze_days
     enrollment.end_date = enrollment.end_date + timedelta(days=freeze_days)
     
+    # CASCADE: Shift scheduled memberships in the same club
+    # Get club_id from the frozen enrollment's group -> section
+    club_id = enrollment.group.section.club_id
+    
+    scheduled_query = (
+        select(StudentEnrollment)
+        .join(Group, StudentEnrollment.group_id == Group.id)
+        .join(Section, Group.section_id == Section.id)
+        .where(
+            and_(
+                StudentEnrollment.student_id == student_id,
+                Section.club_id == club_id,
+                StudentEnrollment.status == EnrollmentStatus.scheduled
+            )
+        )
+    )
+    scheduled_result = await session.execute(scheduled_query)
+    scheduled_memberships = scheduled_result.scalars().all()
+    
+    for scheduled in scheduled_memberships:
+        # Shift both start and end dates by freeze_days
+        scheduled.start_date = scheduled.start_date + timedelta(days=freeze_days)
+        scheduled.end_date = scheduled.end_date + timedelta(days=freeze_days)
+    
     await session.commit()
     await session.refresh(enrollment)
     
@@ -289,14 +313,40 @@ async def unfreeze_student_membership(
     
     # Calculate unused freeze days and adjust end date
     today = date.today()
+    days_to_shift_back = 0
     if enrollment.freeze_end_date and enrollment.freeze_end_date > today:
         unused_days = (enrollment.freeze_end_date - today).days
         enrollment.end_date = enrollment.end_date - timedelta(days=unused_days)
         enrollment.freeze_days_used = (enrollment.freeze_days_used or 0) - unused_days
+        days_to_shift_back = unused_days
     
     enrollment.status = EnrollmentStatus.active
     enrollment.freeze_start_date = None
     enrollment.freeze_end_date = None
+    
+    # CASCADE: Shift scheduled memberships back in the same club
+    if days_to_shift_back > 0:
+        club_id = enrollment.group.section.club_id
+        
+        scheduled_query = (
+            select(StudentEnrollment)
+            .join(Group, StudentEnrollment.group_id == Group.id)
+            .join(Section, Group.section_id == Section.id)
+            .where(
+                and_(
+                    StudentEnrollment.student_id == student_id,
+                    Section.club_id == club_id,
+                    StudentEnrollment.status == EnrollmentStatus.scheduled
+                )
+            )
+        )
+        scheduled_result = await session.execute(scheduled_query)
+        scheduled_memberships = scheduled_result.scalars().all()
+        
+        for scheduled in scheduled_memberships:
+            # Shift both start and end dates back
+            scheduled.start_date = scheduled.start_date - timedelta(days=days_to_shift_back)
+            scheduled.end_date = scheduled.end_date - timedelta(days=days_to_shift_back)
     
     await session.commit()
     await session.refresh(enrollment)
