@@ -156,12 +156,12 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 # Include routers with API version prefix
 # Staff routers
-app.include_router(staff_notifications.router, prefix="/api/v1")
 app.include_router(staff_users.router, prefix="/api/v1")
 app.include_router(staff_clubs.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
 app.include_router(staff_groups.router, prefix="/api/v1")
 app.include_router(invitations.router, prefix="/api/v1")
+app.include_router(staff_notifications.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(staff_team.router, prefix="/api/v1")
 app.include_router(staff_tariffs.router, prefix="/api/v1")

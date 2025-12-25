@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, desc, func
+from sqlalchemy import select, update, desc
 from app.staff.models.notifications import StaffNotification
 from app.staff.schemas.notifications import NotificationCreate
 from typing import List, Optional
