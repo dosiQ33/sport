@@ -44,8 +44,8 @@ class Club(Base):
     )
 
     # relations
-    sections = relationship("Section", back_populates="club", cascade="all, delete")
-    user_roles = relationship("UserRole", back_populates="club", cascade="all, delete")
+    sections = relationship("Section", back_populates="club", cascade="all, delete-orphan", passive_deletes=True)
+    user_roles = relationship("UserRole", back_populates="club", cascade="all, delete-orphan", passive_deletes=True)
     owner = relationship("UserStaff", foreign_keys=[owner_id])
     
     @property

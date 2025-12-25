@@ -50,8 +50,8 @@ class Group(Base):
     section = relationship("Section", back_populates="groups")
     # Primary coach (legacy FK relationship)
     coach = relationship("UserStaff", foreign_keys=[coach_id], back_populates="primary_groups")
-    lessons = relationship("Lesson", back_populates="group", cascade="all, delete")
-    enrollments = relationship("StudentEnrollment", back_populates="group", cascade="all, delete")
+    lessons = relationship("Lesson", back_populates="group", cascade="all, delete-orphan", passive_deletes=True)
+    enrollments = relationship("StudentEnrollment", back_populates="group", cascade="all, delete-orphan", passive_deletes=True)
     # Multiple coaches relationship
     group_coaches = relationship(
         "GroupCoach",

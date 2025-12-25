@@ -34,7 +34,7 @@ class Section(Base):
     club = relationship("Club", back_populates="sections")
     # Primary coach (legacy FK relationship)
     coach = relationship("UserStaff", foreign_keys=[coach_id], back_populates="primary_sections")
-    groups = relationship("Group", back_populates="section", cascade="all, delete")
+    groups = relationship("Group", back_populates="section", cascade="all, delete-orphan", passive_deletes=True)
     # Multiple coaches relationship
     section_coaches = relationship(
         "SectionCoach",
