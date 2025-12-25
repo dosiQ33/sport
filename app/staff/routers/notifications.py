@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-from app.core.database import get_db
+from app.core.database import get_session
 from app.core.telegram_auth import validate_telegram_data
 from app.staff.crud import notifications as crud_notifications
 from app.staff.crud import invitations as crud_invitations
@@ -15,7 +15,7 @@ async def get_notifications(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     telegram_data: dict = Depends(validate_telegram_data),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     telegram_id = telegram_data.get("id")
     if not telegram_id:
@@ -31,7 +31,7 @@ async def get_notifications(
 @router.get("/unread-count", response_model=int)
 async def get_unread_count(
     telegram_data: dict = Depends(validate_telegram_data),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     telegram_id = telegram_data.get("id")
     if not telegram_id:
@@ -47,7 +47,7 @@ async def get_unread_count(
 async def mark_as_read(
     notification_id: int,
     telegram_data: dict = Depends(validate_telegram_data),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     telegram_id = telegram_data.get("id")
     if not telegram_id:
@@ -66,7 +66,7 @@ async def mark_as_read(
 @router.post("/read-all")
 async def mark_all_as_read(
     telegram_data: dict = Depends(validate_telegram_data),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     telegram_id = telegram_data.get("id")
     if not telegram_id:
