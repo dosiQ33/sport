@@ -29,6 +29,7 @@ from app.staff.routers import sections as staff_sections
 from app.staff.routers import groups as staff_groups
 from app.staff.routers import superadmin
 from app.staff.routers import invitations
+from app.staff.routers import staff_notifications
 from app.staff.routers import team as staff_team
 from app.staff.routers import tariffs as staff_tariffs
 from app.staff.routers import students as staff_students
@@ -160,6 +161,7 @@ app.include_router(staff_clubs.router, prefix="/api/v1")
 app.include_router(staff_sections.router, prefix="/api/v1")
 app.include_router(staff_groups.router, prefix="/api/v1")
 app.include_router(invitations.router, prefix="/api/v1")
+app.include_router(staff_notifications.router, prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(staff_team.router, prefix="/api/v1")
 app.include_router(staff_tariffs.router, prefix="/api/v1")

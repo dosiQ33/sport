@@ -357,6 +357,66 @@ async def cancel_lesson(
     await session.commit()
     await session.refresh(lesson, ["group", "coach"])
 
+    # NOTIFICATION: Notify all enrolled students
+    try:
+        from app.core.telegram_sender import send_telegram_message, BotType
+        from app.staff.models.enrollments import StudentEnrollment, EnrollmentStatus
+        from app.students.models.users import UserStudent
+
+        # Find all active enrollments for this group
+        # We want to notify students who have an active (or frozen/new) enrollment in this group
+        students_query = (
+            select(UserStudent)
+            .join(StudentEnrollment, StudentEnrollment.student_id == UserStudent.id)
+            .where(
+                and_(
+                    StudentEnrollment.group_id == lesson.group_id,
+                    StudentEnrollment.status.in_([
+                        EnrollmentStatus.active, 
+                        EnrollmentStatus.new,
+                        EnrollmentStatus.frozen
+                    ]),
+                    UserStudent.telegram_id.isnot(None)
+                )
+            )
+        )
+        
+        students_result = await session.execute(students_query)
+        students = students_result.scalars().all()
+        
+        lesson_date_str = lesson.planned_date.strftime("%d.%m.%Y")
+        lesson_time_str = lesson.planned_start_time.strftime("%H:%M")
+        
+        if students:
+            import asyncio
+            
+            notification_text = (
+                f"⚠️ <b>Training Cancelled</b>\n\n"
+                f"The training scheduled for <b>{lesson_date_str} at {lesson_time_str}</b> "
+                f"has been cancelled by the coach.\n"
+            )
+            
+            if cancel_data.reason:
+                notification_text += f"Reason: {cancel_data.reason}"
+
+            tasks = []
+            for student in students:
+                if student.telegram_id:
+                     tasks.append(
+                         send_telegram_message(
+                             student.telegram_id, 
+                             notification_text, 
+                             bot_type=BotType.STUDENT
+                         )
+                     )
+            
+            if tasks:
+                asyncio.create_task(asyncio.gather(*tasks))
+
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to notify students of cancellation: {e}")
+
     return lesson
 
 

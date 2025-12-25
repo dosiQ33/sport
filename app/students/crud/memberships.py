@@ -272,6 +272,60 @@ async def freeze_student_membership(
     
     await session.commit()
     await session.refresh(enrollment)
+
+    # NOTIFICATION: Notify the coach/staff
+    try:
+        from app.core.telegram_sender import send_telegram_message
+        from app.students.crud.users import get_student_by_id
+
+        # Get student details for the message
+        student_info = await get_student_by_id(session, student_id)
+        student_name = f"{student_info.first_name} {student_info.last_name or ''}".strip()
+        
+        # Determine who to notify (Coach of the group)
+        # enrollment.group is already loaded via joinedload
+        coach_id = enrollment.group.coach_id
+        
+        if coach_id:
+            from app.staff.models.users import UserStaff
+            # Get coach's telegram_id
+            coach = await session.get(UserStaff, coach_id)
+            
+            if coach and coach.telegram_id:
+                message = (
+                    f"❄️ <b>Freeze Notification</b>\n\n"
+                    f"Student: <b>{student_name}</b>\n"
+                    f"Group: {enrollment.group.name}\n"
+                    f"Period: {request.start_date.strftime('%d.%m.%Y')} - {request.end_date.strftime('%d.%m.%Y')}\n"
+                    f"Days: {freeze_days}"
+                )
+                # We use create_task to not block the response
+                import asyncio
+                asyncio.create_task(send_telegram_message(coach.telegram_id, message))
+            
+            # In-App Notification
+            try:
+                from app.staff.crud.notifications import create_notification
+                from app.staff.schemas.notifications import NotificationCreate
+                
+                notification_data = NotificationCreate(
+                    recipient_id=coach.id,
+                    title="❄️ Абонемент заморожен",
+                    message=f"Студент {student_name} заморозил абонемент в группе {enrollment.group.name} на {freeze_days} дней.",
+                    metadata_json={
+                        "type": "membership_freeze",
+                        "student_id": student_id,
+                        "group_id": enrollment.group_id,
+                        "days": freeze_days
+                    }
+                )
+                await create_notification(session, notification_data)
+            except Exception as e:
+                    logging.getLogger(__name__).error(f"Failed to create in-app notification: {e}")
+    except Exception as e:
+        # Log error but don't fail the request
+        import logging
+        logging.getLogger(__name__).error(f"Failed to send freeze notification: {e}")
     
     # Get full membership data for response
     memberships = await get_student_memberships(session, student_id, include_inactive=True)
