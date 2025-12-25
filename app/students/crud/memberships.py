@@ -276,58 +276,95 @@ async def freeze_student_membership(
     await session.commit()
     await session.refresh(enrollment)
 
-    # NOTIFICATION: Notify the coach/staff
+    # NOTIFICATION: Notify staff (owners, admins, and coach of the group)
     try:
+        import asyncio
+        from sqlalchemy import and_
         from app.core.telegram_sender import send_telegram_message, BotType
         from app.students.crud.users import get_user_student_by_id
+        from app.staff.models.user_roles import UserRole
+        from app.staff.models.roles import Role, RoleType
+        from app.staff.crud.notifications import create_notification
+        from app.staff.schemas.notifications import NotificationCreate
 
         # Get student details for the message
         student_info = await get_user_student_by_id(session, student_id)
         student_name = f"{student_info.first_name} {student_info.last_name or ''}".strip()
         
-        # Determine who to notify (Coach of the group)
-        # enrollment.group is already loaded via joinedload
+        # Get club info
+        club_name = enrollment.group.section.club.name if enrollment.group.section.club else "Клуб"
+        group_name = enrollment.group.name
+        
+        # Build notification message
+        tg_message = (
+            f"❄️ <b>Уведомление о заморозке</b>\n\n"
+            f"Студент: <b>{student_name}</b>\n"
+            f"Клуб: {club_name}\n"
+            f"Группа: {group_name}\n"
+            f"Период: {request.start_date.strftime('%d.%m.%Y')} - {request.end_date.strftime('%d.%m.%Y')}\n"
+            f"Дней: {freeze_days}"
+        )
+        
+        in_app_message = f"Студент {student_name} заморозил абонемент в группе {group_name} ({club_name}) на {freeze_days} дней."
+        
+        # Collect recipients: owners and admins of the club + coach of the group
+        recipients_to_notify = set()
         coach_id = enrollment.group.coach_id
         
+        # Add coach if exists
         if coach_id:
-            # Get coach's telegram_id
-            coach = await session.get(UserStaff, coach_id)
-            
-            if coach and coach.telegram_id:
-                message = (
-                    f"❄️ <b>Уведомление о заморозке</b>\n\n"
-                    f"Студент: <b>{student_name}</b>\n"
-                    f"Группа: {enrollment.group.name}\n"
-                    f"Период: {request.start_date.strftime('%d.%m.%Y')} - {request.end_date.strftime('%d.%m.%Y')}\n"
-                    f"Дней: {freeze_days}"
+            recipients_to_notify.add(coach_id)
+        
+        # Get owners and admins of the club
+        owner_admin_roles_query = (
+            select(UserRole)
+            .join(Role, UserRole.role_id == Role.id)
+            .where(
+                and_(
+                    UserRole.club_id == club_id,
+                    UserRole.is_active == True,
+                    Role.code.in_([RoleType.owner, RoleType.admin])
                 )
-                # We use create_task to not block the response
-                import asyncio
-                asyncio.create_task(send_telegram_message(
-                    chat_id=coach.telegram_id, 
-                    text=message,
-                    bot_type=BotType.STAFF
-                ))
-            
-            # In-App Notification
+            )
+        )
+        owner_admin_result = await session.execute(owner_admin_roles_query)
+        owner_admin_roles = owner_admin_result.scalars().all()
+        
+        for user_role in owner_admin_roles:
+            recipients_to_notify.add(user_role.user_id)
+        
+        # Send notifications to all recipients
+        for recipient_id in recipients_to_notify:
             try:
-                from app.staff.crud.notifications import create_notification
-                from app.staff.schemas.notifications import NotificationCreate
+                staff_user = await session.get(UserStaff, recipient_id)
+                if not staff_user:
+                    continue
                 
+                # Send Telegram message
+                if staff_user.telegram_id:
+                    asyncio.create_task(send_telegram_message(
+                        chat_id=staff_user.telegram_id, 
+                        text=tg_message,
+                        bot_type=BotType.STAFF
+                    ))
+                
+                # Create in-app notification
                 notification_data = NotificationCreate(
-                    recipient_id=coach.id,
+                    recipient_id=recipient_id,
                     title="❄️ Абонемент заморожен",
-                    message=f"Студент {student_name} заморозил абонемент в группе {enrollment.group.name} на {freeze_days} дней.",
+                    message=in_app_message,
                     metadata_json={
                         "type": "membership_freeze",
                         "student_id": student_id,
                         "group_id": enrollment.group_id,
+                        "club_id": club_id,
                         "days": freeze_days
                     }
                 )
                 await create_notification(session, notification_data)
             except Exception as e:
-                logger.error(f"Failed to create in-app notification: {e}")
+                logger.error(f"Failed to notify staff user {recipient_id}: {e}")
+                
     except Exception as e:
         # Log error but don't fail the request
         logger.error(f"Failed to send freeze notification: {e}")
