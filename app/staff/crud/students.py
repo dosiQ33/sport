@@ -382,7 +382,19 @@ async def create_enrollment(
     
     session.add(enrollment)
     await session.commit()
-    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
+    
+    # Reload enrollment with relationships for notification
+    enrollment_query = (
+        select(StudentEnrollment)
+        .options(
+            joinedload(StudentEnrollment.group)
+            .joinedload(Group.section)
+            .joinedload(Section.club)
+        )
+        .where(StudentEnrollment.id == enrollment.id)
+    )
+    enrollment_result = await session.execute(enrollment_query)
+    enrollment = enrollment_result.scalar_one_or_none()
     
     # NOTIFICATION: Notify staff about new enrollment
     try:
@@ -454,7 +466,7 @@ async def extend_membership(
         enrollment.price = price
     
     await session.commit()
-    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
+    # Relationships are already loaded via joinedload, no need to refresh
     
     # NOTIFICATION: Notify staff about extension
     try:

@@ -276,7 +276,7 @@ async def freeze_student_membership(
         scheduled.end_date = scheduled.end_date + timedelta(days=freeze_days)
     
     await session.commit()
-    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
+    # Relationships are already loaded via joinedload, no need to refresh
 
     # NOTIFICATION: Notify staff (owners, admins, and coach of the group)
     try:
@@ -375,7 +375,7 @@ async def unfreeze_student_membership(
             scheduled.end_date = scheduled.end_date - timedelta(days=days_to_shift_back)
     
     await session.commit()
-    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
+    # Relationships are already loaded via joinedload, no need to refresh
 
     # NOTIFICATION: Notify staff about unfreeze
     try:
