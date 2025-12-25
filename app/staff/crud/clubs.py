@@ -251,59 +251,65 @@ async def delete_club(
 
 async def _manual_cascade_delete_club(session: AsyncSession, club_id: int):
     """
-    Manually delete related entities for a club using raw SQL to ensure integrity.
-    This bypasses potential ORM loading issues and ensures deep cleaning of
-    orphaned records before the club is deleted.
+    Manually delete related entities for a club to ensure integrity.
+    Debug version to trace what is being found.
     """
-    # 1. Delete LessonBookings (deepest dependency)
-    # Linked to Lessons -> Groups -> Sections -> Club
-    await session.execute(text("""
-        DELETE FROM lesson_bookings
-        WHERE lesson_id IN (
-            SELECT l.id FROM lessons l
-            JOIN groups g ON l.group_id = g.id
-            JOIN sections s ON g.section_id = s.id
-            WHERE s.club_id = :club_id
-        )
-    """), {"club_id": club_id})
-
-    # 2. Delete Lessons
-    # Linked to Groups -> Sections -> Club
-    await session.execute(text("""
-        DELETE FROM lessons
-        WHERE group_id IN (
-            SELECT g.id FROM groups g
-            JOIN sections s ON g.section_id = s.id
-            WHERE s.club_id = :club_id
-        )
-    """), {"club_id": club_id})
-
-    # 3. Delete StudentEnrollments
-    # Linked to Groups -> Sections -> Club
-    await session.execute(text("""
-        DELETE FROM student_enrollments
-        WHERE group_id IN (
-            SELECT g.id FROM groups g
-            JOIN sections s ON g.section_id = s.id
-            WHERE s.club_id = :club_id
-        )
-    """), {"club_id": club_id})
+    # 1. Fetch Section IDs
+    result = await session.execute(text("SELECT id FROM sections WHERE club_id = :cid"), {"cid": club_id})
+    section_ids = [r[0] for r in result.fetchall()]
+    print(f"DEBUG: Found sections for club {club_id}: {section_ids}")
     
-    # 4. Delete Groups
-    # Linked to Sections -> Club
-    await session.execute(text("""
-        DELETE FROM groups
-        WHERE section_id IN (
-            SELECT id FROM sections WHERE club_id = :club_id
-        )
-    """), {"club_id": club_id})
+    if not section_ids:
+        return
 
-    # 5. Delete Sections
-    # Linked to Club
-    await session.execute(text("""
-        DELETE FROM sections
-        WHERE club_id = :club_id
-    """), {"club_id": club_id})
+    # 2. Fetch Group IDs
+    if section_ids:
+        s_ids_str = ",".join(map(str, section_ids))
+        result = await session.execute(text(f"SELECT id FROM groups WHERE section_id IN ({s_ids_str})"))
+        group_ids = [r[0] for r in result.fetchall()]
+        print(f"DEBUG: Found groups: {group_ids}")
+    else:
+        group_ids = []
+
+    # 3. Fetch Lesson IDs
+    if group_ids:
+        g_ids_str = ",".join(map(str, group_ids))
+        result = await session.execute(text(f"SELECT id FROM lessons WHERE group_id IN ({g_ids_str})"))
+        lesson_ids = [r[0] for r in result.fetchall()]
+        print(f"DEBUG: Found lessons: {lesson_ids}")
+        
+        # 4. Fetch LessonBooking IDs
+        if lesson_ids:
+            l_ids_str = ",".join(map(str, lesson_ids))
+            result = await session.execute(text(f"SELECT id FROM lesson_bookings WHERE lesson_id IN ({l_ids_str})"))
+            booking_ids = [r[0] for r in result.fetchall()]
+            print(f"DEBUG: Found bookings: {booking_ids}")
+            
+            # DELETE Bookings
+            if booking_ids:
+                await session.execute(text(f"DELETE FROM lesson_bookings WHERE id IN ({','.join(map(str, booking_ids))})"))
+                print("DEBUG: Deleted bookings")
+            
+            # DELETE Lessons
+            await session.execute(text(f"DELETE FROM lessons WHERE id IN ({l_ids_str})"))
+            print("DEBUG: Deleted lessons")
+
+        # DELETE Enrollments
+        # Select enrollments to debug?
+        result = await session.execute(text(f"SELECT id FROM student_enrollments WHERE group_id IN ({g_ids_str})"))
+        enrollment_ids = [r[0] for r in result.fetchall()]
+        print(f"DEBUG: Found enrollments: {enrollment_ids}")
+        if enrollment_ids:
+             await session.execute(text(f"DELETE FROM student_enrollments WHERE id IN ({','.join(map(str, enrollment_ids))})"))
+        
+        # DELETE Groups
+        await session.execute(text(f"DELETE FROM groups WHERE id IN ({g_ids_str})"))
+        print("DEBUG: Deleted groups")
+
+    # DELETE Sections
+    if section_ids:
+        await session.execute(text(f"DELETE FROM sections WHERE id IN ({s_ids_str})"))
+        print("DEBUG: Deleted sections")
 
 
 
