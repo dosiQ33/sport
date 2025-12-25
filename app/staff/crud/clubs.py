@@ -238,6 +238,9 @@ async def delete_club(
             "delete", "club", "You can only delete clubs you own"
         )
 
+    # Expire all ORM objects to prevent SQLAlchemy from tracking during raw deletes
+    session.expire_all()
+    
     # Use raw SQL deletes to avoid SQLAlchemy ORM cascade issues
     # that cause NOT NULL violations on lesson_bookings.lesson_id
     from sqlalchemy import delete
