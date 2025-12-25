@@ -222,7 +222,7 @@ async def freeze_student_membership(
     if not enrollment:
         raise NotFoundError("Membership", str(request.enrollment_id))
     
-    if enrollment.status != EnrollmentStatus.active:
+    if enrollment.status not in [EnrollmentStatus.active, EnrollmentStatus.new]:
         raise ValidationError("Can only freeze active memberships")
     
     # Calculate freeze days
