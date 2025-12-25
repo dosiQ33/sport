@@ -42,7 +42,7 @@ class LessonBooking(Base):
     
     # Relationships
     student = relationship("UserStudent", backref="lesson_bookings")
-    lesson = relationship("Lesson", backref="bookings")
+    lesson = relationship("Lesson", backref="bookings", passive_deletes=True)
     
     __table_args__ = (
         # Prevent duplicate active bookings for same student+lesson
