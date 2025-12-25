@@ -238,6 +238,29 @@ async def delete_club(
             "delete", "club", "You can only delete clubs you own"
         )
 
+    # Explicitly delete lesson_bookings first to prevent NOT NULL violation
+    # This avoids SQLAlchemy trying to set lesson_id to NULL before cascade
+    from sqlalchemy import delete
+    from app.staff.models.lessons import Lesson
+    from app.staff.models.groups import Group
+    from app.staff.models.sections import Section
+    from app.students.models.bookings import LessonBooking
+    
+    # Get all lesson IDs for this club via the cascade chain
+    lesson_ids_query = (
+        select(Lesson.id)
+        .join(Group, Lesson.group_id == Group.id)
+        .join(Section, Group.section_id == Section.id)
+        .where(Section.club_id == club_id)
+    )
+    
+    # Delete all lesson_bookings for these lessons
+    await session.execute(
+        delete(LessonBooking).where(
+            LessonBooking.lesson_id.in_(lesson_ids_query)
+        )
+    )
+
     # Удаляем клуб (связанные записи удалятся автоматически из-за cascade)
     await session.delete(db_club)
     await session.commit()
