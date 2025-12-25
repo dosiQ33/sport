@@ -230,6 +230,12 @@ async def freeze_student_membership(
     if enrollment.status not in [EnrollmentStatus.active, EnrollmentStatus.new]:
         raise ValidationError("Can only freeze active memberships")
     
+    # Validate that start date is at least tomorrow
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    if request.start_date < tomorrow:
+        raise ValidationError(f"Freeze start date must be at least tomorrow ({tomorrow.isoformat()}). Cannot freeze starting from today or past dates.")
+    
     # Calculate freeze days
     freeze_days = (request.end_date - request.start_date).days
     
