@@ -213,6 +213,16 @@ def _get_notification_config(
 ) -> Optional[dict]:
     """Get notification configuration based on type."""
     
+    # Helper function to safely format dates
+    def format_date(date_value, default='N/A'):
+        if not date_value:
+            return default
+        if isinstance(date_value, str):
+            return date_value
+        if hasattr(date_value, 'strftime'):
+            return date_value.strftime('%d.%m.%Y')
+        return str(date_value)
+    
     configs = {
         'freeze': {
             'title': '❄️ Абонемент заморожен',
@@ -221,7 +231,7 @@ def _get_notification_config(
                 f"Студент: <b>{student_name}</b>\n"
                 f"Клуб: {club_name}\n"
                 f"Группа: {group_name}\n"
-                f"Период: {additional_data.get('start_date', '').strftime('%d.%m.%Y')} - {additional_data.get('end_date', '').strftime('%d.%m.%Y')}\n"
+                f"Период: {format_date(additional_data.get('start_date'))} - {format_date(additional_data.get('end_date'))}\n"
                 f"Дней: {additional_data.get('days', 0)}"
             ),
             'in_app_message': (
@@ -254,7 +264,7 @@ def _get_notification_config(
                 f"Клуб: {club_name}\n"
                 f"Группа: {group_name}\n"
                 f"Продлено на: {additional_data.get('days', 0)} дней\n"
-                f"Новая дата окончания: {additional_data.get('new_end_date', '').strftime('%d.%m.%Y')}"
+                f"Новая дата окончания: {format_date(additional_data.get('new_end_date'))}"
             ),
             'in_app_message': (
                 f"Абонемент студента {student_name} в группе {group_name} ({club_name}) "
@@ -271,7 +281,7 @@ def _get_notification_config(
                 f"Клуб: {club_name}\n"
                 f"Группа: {group_name}\n"
                 f"Тариф: {additional_data.get('tariff_name', 'N/A')}\n"
-                f"Период: {additional_data.get('start_date', '').strftime('%d.%m.%Y')} - {additional_data.get('end_date', '').strftime('%d.%m.%Y')}\n"
+                f"Период: {format_date(additional_data.get('start_date'))} - {format_date(additional_data.get('end_date'))}\n"
                 f"Сумма: {additional_data.get('price', 0):.0f} ₸"
             ),
             'in_app_message': (
@@ -293,7 +303,7 @@ def _get_notification_config(
                 f"Клуб: {club_name}\n"
                 f"Группа: {group_name}\n"
                 f"Новый тариф: {additional_data.get('tariff_name', 'N/A')}\n"
-                f"Период: {additional_data.get('start_date', '').strftime('%d.%m.%Y')} - {additional_data.get('end_date', '').strftime('%d.%m.%Y')}"
+                f"Период: {format_date(additional_data.get('start_date'))} - {format_date(additional_data.get('end_date'))}"
             ),
             'in_app_message': (
                 f"Студент {student_name} обновил абонемент в группе {group_name} ({club_name}). "
