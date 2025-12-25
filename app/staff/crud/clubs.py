@@ -1,5 +1,5 @@
 from typing import Optional
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, delete
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,11 @@ from app.staff.models.users import UserStaff
 from app.staff.models.roles import Role, RoleType
 from app.staff.models.user_roles import UserRole
 from app.staff.schemas.clubs import ClubCreate, ClubUpdate
+from app.staff.models.sections import Section
+from app.staff.models.groups import Group
+from app.staff.models.lessons import Lesson
+from app.staff.models.enrollments import StudentEnrollment
+from app.students.models.bookings import LessonBooking
 
 
 @db_operation
@@ -238,11 +243,70 @@ async def delete_club(
             "delete", "club", "You can only delete clubs you own"
         )
 
+    # Manually delete related entities to avoid DB integrity errors if ON DELETE CASCADE is missing
+    await _manual_cascade_delete_club(session, club_id)
+
     # Удаляем клуб (связанные записи удалятся автоматически из-за cascade)
     await session.delete(db_club)
     await session.commit()
 
     return True
+
+
+async def _manual_cascade_delete_club(session: AsyncSession, club_id: int):
+    """
+    Manually delete related entities for a club to ensure integrity.
+    This is a fallback/safety measure ensuring all children are deleted
+    even if DB foreign keys are not set to CASCADE correctly.
+    """
+    # 1. Find all sections for the club
+    sections_result = await session.execute(
+        select(Section.id).where(Section.club_id == club_id)
+    )
+    section_ids = sections_result.scalars().all()
+    
+    if not section_ids:
+        return
+
+    # 2. Find all groups for these sections
+    groups_result = await session.execute(
+        select(Group.id).where(Group.section_id.in_(section_ids))
+    )
+    group_ids = groups_result.scalars().all()
+    
+    if group_ids:
+        # a. Find all lessons for these groups
+        lessons_result = await session.execute(
+            select(Lesson.id).where(Lesson.group_id.in_(group_ids))
+        )
+        lesson_ids = lessons_result.scalars().all()
+        
+        if lesson_ids:
+            # i. Delete LessonBookings
+            await session.execute(
+                delete(LessonBooking).where(LessonBooking.lesson_id.in_(lesson_ids))
+            )
+            
+            # ii. Delete Lessons
+            await session.execute(
+                delete(Lesson).where(Lesson.id.in_(lesson_ids))
+            )
+        
+        # b. Delete StudentEnrollments
+        await session.execute(
+            delete(StudentEnrollment).where(StudentEnrollment.group_id.in_(group_ids))
+        )
+
+        # c. Delete Groups
+        await session.execute(
+            delete(Group).where(Group.id.in_(group_ids))
+        )
+    
+    # 3. Delete Sections
+    await session.execute(
+        delete(Section).where(Section.id.in_(section_ids))
+    )
+
 
 
 @db_operation
