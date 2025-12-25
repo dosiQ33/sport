@@ -29,7 +29,7 @@ from app.staff.routers import sections as staff_sections
 from app.staff.routers import groups as staff_groups
 from app.staff.routers import superadmin
 from app.staff.routers import invitations
-from app.staff.routers import staff_notifications
+from app.staff.routers import notifications as staff_notifications
 from app.staff.routers import team as staff_team
 from app.staff.routers import tariffs as staff_tariffs
 from app.staff.routers import students as staff_students
