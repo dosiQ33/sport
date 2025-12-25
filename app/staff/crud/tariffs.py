@@ -281,6 +281,7 @@ async def create_tariff(
         group_ids=tariff_data.group_ids or [],
         sessions_count=tariff_data.sessions_count,
         validity_days=tariff_data.validity_days,
+        freeze_days_total=tariff_data.freeze_days_total,
         active=tariff_data.active,
         created_by_id=user_id,
     )
