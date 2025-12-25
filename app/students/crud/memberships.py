@@ -276,23 +276,36 @@ async def freeze_student_membership(
         scheduled.end_date = scheduled.end_date + timedelta(days=freeze_days)
     
     await session.commit()
-    # Relationships are already loaded via joinedload, no need to refresh
-
+    
     # NOTIFICATION: Notify staff (owners, admins, and coach of the group)
+    # Re-query enrollment with relationships after commit (objects are expired after commit)
     try:
         from app.staff.services.notification_service import send_membership_notification
         
-        await send_membership_notification(
-            session=session,
-            notification_type='freeze',
-            student_id=student_id,
-            enrollment=enrollment,
-            additional_data={
-                'days': freeze_days,
-                'start_date': request.start_date,
-                'end_date': request.end_date
-            }
+        enrollment_for_notification = (
+            select(StudentEnrollment)
+            .options(
+                joinedload(StudentEnrollment.group)
+                .joinedload(Group.section)
+                .joinedload(Section.club)
+            )
+            .where(StudentEnrollment.id == enrollment.id)
         )
+        enrollment_result = await session.execute(enrollment_for_notification)
+        enrollment_with_relations = enrollment_result.scalar_one_or_none()
+        
+        if enrollment_with_relations:
+            await send_membership_notification(
+                session=session,
+                notification_type='freeze',
+                student_id=student_id,
+                enrollment=enrollment_with_relations,
+                additional_data={
+                    'days': freeze_days,
+                    'start_date': request.start_date,
+                    'end_date': request.end_date
+                }
+            )
     except Exception as e:
         # Log error but don't fail the request
         logger.error(f"Failed to send freeze notification: {e}", exc_info=True)
@@ -375,19 +388,32 @@ async def unfreeze_student_membership(
             scheduled.end_date = scheduled.end_date - timedelta(days=days_to_shift_back)
     
     await session.commit()
-    # Relationships are already loaded via joinedload, no need to refresh
-
+    
     # NOTIFICATION: Notify staff about unfreeze
+    # Re-query enrollment with relationships after commit (objects are expired after commit)
     try:
         from app.staff.services.notification_service import send_membership_notification
         
-        await send_membership_notification(
-            session=session,
-            notification_type='unfreeze',
-            student_id=student_id,
-            enrollment=enrollment,
-            additional_data={}
+        enrollment_for_notification = (
+            select(StudentEnrollment)
+            .options(
+                joinedload(StudentEnrollment.group)
+                .joinedload(Group.section)
+                .joinedload(Section.club)
+            )
+            .where(StudentEnrollment.id == enrollment.id)
         )
+        enrollment_result = await session.execute(enrollment_for_notification)
+        enrollment_with_relations = enrollment_result.scalar_one_or_none()
+        
+        if enrollment_with_relations:
+            await send_membership_notification(
+                session=session,
+                notification_type='unfreeze',
+                student_id=student_id,
+                enrollment=enrollment_with_relations,
+                additional_data={}
+            )
     except Exception as e:
         # Log error but don't fail the request
         logger.error(f"Failed to send unfreeze notification: {e}", exc_info=True)

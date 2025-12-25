@@ -69,6 +69,7 @@ async def get_notification_recipients(
         coach_id = group_result.scalar_one_or_none()
         if coach_id:
             recipients.add(coach_id)
+            logger.debug(f"Added coach {coach_id} to notification recipients for group {group_id}")
     
     return recipients
 
@@ -91,9 +92,17 @@ async def send_membership_notification(
         additional_data: Optional dict with additional data (days, amount, etc.)
     """
     try:
+        logger.debug(f"Starting notification for type: {notification_type}, enrollment: {enrollment.id}, student: {student_id}")
+        
         # Ensure relationships are loaded
-        if not enrollment.group or not enrollment.group.section or not enrollment.group.section.club:
-            logger.warning(f"Enrollment {enrollment.id} missing relationships, skipping notification")
+        if not enrollment.group:
+            logger.error(f"Enrollment {enrollment.id} missing group relationship")
+            return
+        if not enrollment.group.section:
+            logger.error(f"Enrollment {enrollment.id} missing section relationship")
+            return
+        if not enrollment.group.section.club:
+            logger.error(f"Enrollment {enrollment.id} missing club relationship")
             return
         
         club_id = enrollment.group.section.club_id
@@ -134,8 +143,10 @@ async def send_membership_notification(
         )
         
         if not recipients:
-            logger.info(f"No recipients found for club {club_id}, group {group_id}")
+            logger.warning(f"No recipients found for club {club_id}, group {group_id}. Check if club has owners/admins or group has a coach.")
             return
+        
+        logger.info(f"Sending {notification_type} notification to {len(recipients)} recipients: {recipients}")
         
         # Send notifications to all recipients
         for recipient_id in recipients:
@@ -166,6 +177,7 @@ async def send_membership_notification(
                     }
                 )
                 await create_notification(session, notification_data)
+                logger.debug(f"Successfully created in-app notification for staff user {recipient_id}")
                 
             except Exception as e:
                 logger.error(f"Failed to notify staff user {recipient_id}: {e}", exc_info=True)

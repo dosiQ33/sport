@@ -466,24 +466,37 @@ async def extend_membership(
         enrollment.price = price
     
     await session.commit()
-    # Relationships are already loaded via joinedload, no need to refresh
     
     # NOTIFICATION: Notify staff about extension
+    # Re-query enrollment with relationships after commit (objects are expired after commit)
     try:
         from app.staff.services.notification_service import send_membership_notification
         
-        await send_membership_notification(
-            session=session,
-            notification_type='extend',
-            student_id=enrollment.student_id,
-            enrollment=enrollment,
-            additional_data={
-                'days': days,
-                'new_end_date': enrollment.end_date,
-                'tariff_id': tariff_id,
-                'tariff_name': tariff_name
-            }
+        enrollment_for_notification = (
+            select(StudentEnrollment)
+            .options(
+                joinedload(StudentEnrollment.group)
+                .joinedload(Group.section)
+                .joinedload(Section.club)
+            )
+            .where(StudentEnrollment.id == enrollment.id)
         )
+        enrollment_result = await session.execute(enrollment_for_notification)
+        enrollment_with_relations = enrollment_result.scalar_one_or_none()
+        
+        if enrollment_with_relations:
+            await send_membership_notification(
+                session=session,
+                notification_type='extend',
+                student_id=enrollment_with_relations.student_id,
+                enrollment=enrollment_with_relations,
+                additional_data={
+                    'days': days,
+                    'new_end_date': enrollment_with_relations.end_date,
+                    'tariff_id': tariff_id,
+                    'tariff_name': tariff_name
+                }
+            )
     except Exception as e:
         logger.error(f"Failed to send extension notification: {e}", exc_info=True)
     
