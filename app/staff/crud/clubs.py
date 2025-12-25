@@ -238,31 +238,83 @@ async def delete_club(
             "delete", "club", "You can only delete clubs you own"
         )
 
-    # Explicitly delete lesson_bookings first to prevent NOT NULL violation
-    # This avoids SQLAlchemy trying to set lesson_id to NULL before cascade
+    # Use raw SQL deletes to avoid SQLAlchemy ORM cascade issues
+    # that cause NOT NULL violations on lesson_bookings.lesson_id
     from sqlalchemy import delete
     from app.staff.models.lessons import Lesson
     from app.staff.models.groups import Group
     from app.staff.models.sections import Section
+    from app.staff.models.user_roles import UserRole
     from app.students.models.bookings import LessonBooking
+    from app.students.models.attendance import Attendance
+    from app.students.models.enrollments import StudentEnrollment
     
-    # Get all lesson IDs for this club via the cascade chain
-    lesson_ids_query = (
-        select(Lesson.id)
-        .join(Group, Lesson.group_id == Group.id)
-        .join(Section, Group.section_id == Section.id)
-        .where(Section.club_id == club_id)
+    # 1. Get all section IDs for this club
+    section_ids_result = await session.execute(
+        select(Section.id).where(Section.club_id == club_id)
     )
+    section_ids = [row[0] for row in section_ids_result.fetchall()]
     
-    # Delete all lesson_bookings for these lessons
-    await session.execute(
-        delete(LessonBooking).where(
-            LessonBooking.lesson_id.in_(lesson_ids_query)
+    if section_ids:
+        # 2. Get all group IDs for these sections
+        group_ids_result = await session.execute(
+            select(Group.id).where(Group.section_id.in_(section_ids))
         )
+        group_ids = [row[0] for row in group_ids_result.fetchall()]
+        
+        if group_ids:
+            # 3. Get all lesson IDs for these groups
+            lesson_ids_result = await session.execute(
+                select(Lesson.id).where(Lesson.group_id.in_(group_ids))
+            )
+            lesson_ids = [row[0] for row in lesson_ids_result.fetchall()]
+            
+            if lesson_ids:
+                # 4. Delete lesson_bookings for these lessons
+                await session.execute(
+                    delete(LessonBooking).where(LessonBooking.lesson_id.in_(lesson_ids))
+                )
+                
+                # 5. Delete attendance for these lessons (SET NULL is fine, but let's be explicit)
+                await session.execute(
+                    delete(Attendance).where(Attendance.lesson_id.in_(lesson_ids))
+                )
+            
+            # 6. Delete lessons
+            await session.execute(
+                delete(Lesson).where(Lesson.group_id.in_(group_ids))
+            )
+            
+            # 7. Delete enrollments for these groups
+            await session.execute(
+                delete(StudentEnrollment).where(StudentEnrollment.group_id.in_(group_ids))
+            )
+        
+        # 8. Delete groups
+        await session.execute(
+            delete(Group).where(Group.section_id.in_(section_ids))
+        )
+    
+    # 9. Delete sections
+    await session.execute(
+        delete(Section).where(Section.club_id == club_id)
     )
-
-    # Удаляем клуб (связанные записи удалятся автоматически из-за cascade)
-    await session.delete(db_club)
+    
+    # 10. Delete user_roles for this club
+    await session.execute(
+        delete(UserRole).where(UserRole.club_id == club_id)
+    )
+    
+    # 11. Delete any orphaned bookings with null lesson_id (from previous failed deletions)
+    await session.execute(
+        delete(LessonBooking).where(LessonBooking.lesson_id.is_(None))
+    )
+    
+    # 12. Finally, delete the club using raw SQL to avoid ORM cascade
+    await session.execute(
+        delete(Club).where(Club.id == club_id)
+    )
+    
     await session.commit()
 
     return True
