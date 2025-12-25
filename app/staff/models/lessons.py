@@ -57,6 +57,12 @@ class Lesson(Base):
     # Relations
     group = relationship("Group", back_populates="lessons")
     coach = relationship("UserStaff", foreign_keys=[coach_id])
+    bookings = relationship(
+        "LessonBooking",
+        back_populates="lesson",
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
 
     __table_args__ = (
         # Для поиска занятий группы по датам
