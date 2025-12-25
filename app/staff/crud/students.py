@@ -382,7 +382,27 @@ async def create_enrollment(
     
     session.add(enrollment)
     await session.commit()
-    await session.refresh(enrollment)
+    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
+    
+    # NOTIFICATION: Notify staff about new enrollment
+    try:
+        from app.staff.services.notification_service import send_membership_notification
+        
+        await send_membership_notification(
+            session=session,
+            notification_type='buy',
+            student_id=student_id,
+            enrollment=enrollment,
+            additional_data={
+                'tariff_id': tariff_id,
+                'tariff_name': tariff_name or 'N/A',
+                'price': price,
+                'start_date': start_date,
+                'end_date': end_date
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to send enrollment notification: {e}", exc_info=True)
     
     return enrollment
 
@@ -434,7 +454,26 @@ async def extend_membership(
         enrollment.price = price
     
     await session.commit()
-    await session.refresh(enrollment)
+    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
+    
+    # NOTIFICATION: Notify staff about extension
+    try:
+        from app.staff.services.notification_service import send_membership_notification
+        
+        await send_membership_notification(
+            session=session,
+            notification_type='extend',
+            student_id=enrollment.student_id,
+            enrollment=enrollment,
+            additional_data={
+                'days': days,
+                'new_end_date': enrollment.end_date,
+                'tariff_id': tariff_id,
+                'tariff_name': tariff_name
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to send extension notification: {e}", exc_info=True)
     
     return enrollment
 

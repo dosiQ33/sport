@@ -279,6 +279,8 @@ async def complete_payment(
     
     enrollment_id = None
     message = "Payment completed successfully."
+    notification_type = None
+    enrollment = None
     
     if group:
         # Get validity days from tariff (default 30)
@@ -307,6 +309,8 @@ async def complete_payment(
             # Add freeze days to available
             same_tariff_enrollment.freeze_days_total = (same_tariff_enrollment.freeze_days_total or 0) + freeze_days
             enrollment_id = same_tariff_enrollment.id
+            enrollment = same_tariff_enrollment
+            notification_type = 'extend'
             message = f"Membership extended by {validity_days} days."
         else:
             # Check if student has ANY active membership in this CLUB
@@ -375,6 +379,7 @@ async def complete_payment(
                 session.add(enrollment)
                 await session.flush()
                 enrollment_id = enrollment.id
+                notification_type = 'upgrade'
                 message = f"Membership scheduled to start on {start_date.strftime('%d.%m.%Y')} after current membership ends."
             else:
                 # CASE 3: No active membership in club → START immediately
@@ -397,6 +402,7 @@ async def complete_payment(
                 session.add(enrollment)
                 await session.flush()
                 enrollment_id = enrollment.id
+                notification_type = 'buy'
                 message = "Membership activated."
     
     # Update payment status
@@ -405,6 +411,49 @@ async def complete_payment(
     payment.enrollment_id = enrollment_id
     
     await session.commit()
+    
+    # Refresh enrollment with relationships for notification
+    if enrollment_id:
+        enrollment_query = (
+            select(StudentEnrollment)
+            .options(
+                joinedload(StudentEnrollment.group)
+                .joinedload(Group.section)
+                .joinedload(Section.club)
+            )
+            .where(StudentEnrollment.id == enrollment_id)
+        )
+        enrollment_result = await session.execute(enrollment_query)
+        enrollment = enrollment_result.scalar_one_or_none()
+    
+    # NOTIFICATION: Notify staff about payment completion
+    if enrollment and notification_type:
+        try:
+            from app.staff.services.notification_service import send_membership_notification
+            
+            additional_data = {
+                'tariff_id': tariff.id,
+                'tariff_name': tariff.name,
+                'price': tariff.price,
+                'start_date': enrollment.start_date,
+                'end_date': enrollment.end_date
+            }
+            
+            if notification_type == 'extend':
+                additional_data['days'] = validity_days
+                additional_data['new_end_date'] = enrollment.end_date
+            
+            await send_membership_notification(
+                session=session,
+                notification_type=notification_type,
+                student_id=student_id,
+                enrollment=enrollment,
+                additional_data=additional_data
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send payment notification: {e}", exc_info=True)
     
     return CompletePaymentResponse(
         success=True,

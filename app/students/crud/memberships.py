@@ -206,11 +206,13 @@ async def freeze_student_membership(
     request: FreezeMembershipRequest
 ) -> MembershipRead:
     """Freeze a student's membership"""
-    # Get enrollment
+    # Get enrollment with all necessary relationships
     enrollment_query = (
         select(StudentEnrollment)
         .options(
-            joinedload(StudentEnrollment.group).joinedload(Group.section)
+            joinedload(StudentEnrollment.group)
+            .joinedload(Group.section)
+            .joinedload(Section.club)
         )
         .where(
             and_(
@@ -274,99 +276,26 @@ async def freeze_student_membership(
         scheduled.end_date = scheduled.end_date + timedelta(days=freeze_days)
     
     await session.commit()
-    await session.refresh(enrollment)
+    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
 
     # NOTIFICATION: Notify staff (owners, admins, and coach of the group)
     try:
-        import asyncio
-        from app.core.telegram_sender import send_telegram_message, BotType
-        from app.students.crud.users import get_user_student_by_id
-        from app.staff.models.user_roles import UserRole
-        from app.staff.models.roles import Role, RoleType
-        from app.staff.crud.notifications import create_notification
-        from app.staff.schemas.notifications import NotificationCreate
-
-        # Get student details for the message
-        student_info = await get_user_student_by_id(session, student_id)
-        student_name = f"{student_info.first_name} {student_info.last_name or ''}".strip()
+        from app.staff.services.notification_service import send_membership_notification
         
-        # Get club info
-        club_name = enrollment.group.section.club.name if enrollment.group.section.club else "Клуб"
-        group_name = enrollment.group.name
-        
-        # Build notification message
-        tg_message = (
-            f"❄️ <b>Уведомление о заморозке</b>\n\n"
-            f"Студент: <b>{student_name}</b>\n"
-            f"Клуб: {club_name}\n"
-            f"Группа: {group_name}\n"
-            f"Период: {request.start_date.strftime('%d.%m.%Y')} - {request.end_date.strftime('%d.%m.%Y')}\n"
-            f"Дней: {freeze_days}"
+        await send_membership_notification(
+            session=session,
+            notification_type='freeze',
+            student_id=student_id,
+            enrollment=enrollment,
+            additional_data={
+                'days': freeze_days,
+                'start_date': request.start_date,
+                'end_date': request.end_date
+            }
         )
-        
-        in_app_message = f"Студент {student_name} заморозил абонемент в группе {group_name} ({club_name}) на {freeze_days} дней."
-        
-        # Collect recipients: owners and admins of the club + coach of the group
-        recipients_to_notify = set()
-        coach_id = enrollment.group.coach_id
-        
-        # Add coach if exists
-        if coach_id:
-            recipients_to_notify.add(coach_id)
-        
-        # Get owners and admins of the club
-        owner_admin_roles_query = (
-            select(UserRole)
-            .join(Role, UserRole.role_id == Role.id)
-            .where(
-                and_(
-                    UserRole.club_id == club_id,
-                    UserRole.is_active == True,
-                    Role.code.in_([RoleType.owner, RoleType.admin])
-                )
-            )
-        )
-        owner_admin_result = await session.execute(owner_admin_roles_query)
-        owner_admin_roles = owner_admin_result.scalars().all()
-        
-        for user_role in owner_admin_roles:
-            recipients_to_notify.add(user_role.user_id)
-        
-        # Send notifications to all recipients
-        for recipient_id in recipients_to_notify:
-            try:
-                staff_user = await session.get(UserStaff, recipient_id)
-                if not staff_user:
-                    continue
-                
-                # Send Telegram message
-                if staff_user.telegram_id:
-                    asyncio.create_task(send_telegram_message(
-                        chat_id=staff_user.telegram_id, 
-                        text=tg_message,
-                        bot_type=BotType.STAFF
-                    ))
-                
-                # Create in-app notification
-                notification_data = NotificationCreate(
-                    recipient_id=recipient_id,
-                    title="❄️ Абонемент заморожен",
-                    message=in_app_message,
-                    metadata_json={
-                        "type": "membership_freeze",
-                        "student_id": student_id,
-                        "group_id": enrollment.group_id,
-                        "club_id": club_id,
-                        "days": freeze_days
-                    }
-                )
-                await create_notification(session, notification_data)
-            except Exception as e:
-                logger.error(f"Failed to notify staff user {recipient_id}: {e}")
-                
     except Exception as e:
         # Log error but don't fail the request
-        logger.error(f"Failed to send freeze notification: {e}")
+        logger.error(f"Failed to send freeze notification: {e}", exc_info=True)
     
     # Get full membership data for response
     memberships = await get_student_memberships(session, student_id, include_inactive=True)
@@ -384,11 +313,13 @@ async def unfreeze_student_membership(
     enrollment_id: int
 ) -> MembershipRead:
     """Unfreeze a student's membership"""
-    # Get enrollment
+    # Get enrollment with all necessary relationships
     enrollment_query = (
         select(StudentEnrollment)
         .options(
-            joinedload(StudentEnrollment.group).joinedload(Group.section)
+            joinedload(StudentEnrollment.group)
+            .joinedload(Group.section)
+            .joinedload(Section.club)
         )
         .where(
             and_(
@@ -444,7 +375,22 @@ async def unfreeze_student_membership(
             scheduled.end_date = scheduled.end_date - timedelta(days=days_to_shift_back)
     
     await session.commit()
-    await session.refresh(enrollment)
+    await session.refresh(enrollment, ["group", "group.section", "group.section.club"])
+
+    # NOTIFICATION: Notify staff about unfreeze
+    try:
+        from app.staff.services.notification_service import send_membership_notification
+        
+        await send_membership_notification(
+            session=session,
+            notification_type='unfreeze',
+            student_id=student_id,
+            enrollment=enrollment,
+            additional_data={}
+        )
+    except Exception as e:
+        # Log error but don't fail the request
+        logger.error(f"Failed to send unfreeze notification: {e}", exc_info=True)
     
     # Get full membership data for response
     memberships = await get_student_memberships(session, student_id, include_inactive=True)
