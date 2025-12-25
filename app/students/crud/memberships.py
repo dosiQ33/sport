@@ -279,7 +279,6 @@ async def freeze_student_membership(
     # NOTIFICATION: Notify staff (owners, admins, and coach of the group)
     try:
         import asyncio
-        from sqlalchemy import and_
         from app.core.telegram_sender import send_telegram_message, BotType
         from app.students.crud.users import get_user_student_by_id
         from app.staff.models.user_roles import UserRole
