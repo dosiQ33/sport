@@ -1,5 +1,6 @@
 """Staff Students CRUD - Operations for managing students from staff perspective"""
 import math
+import logging
 from typing import List, Optional, Tuple, Dict
 from datetime import date, timedelta, datetime
 from sqlalchemy import and_, or_, func, extract
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import db_operation
 from app.core.exceptions import NotFoundError, ValidationError, AuthorizationError
+from app.core.telegram_sender import send_telegram_message, BotType
 from app.staff.models.enrollments import StudentEnrollment, EnrollmentStatus
 from app.staff.models.groups import Group
 from app.staff.models.sections import Section
@@ -17,6 +19,7 @@ from app.staff.models.users import UserStaff
 from app.staff.models.user_roles import UserRole
 from app.staff.models.roles import Role, RoleType
 from app.staff.models.tariffs import Tariff
+from app.staff.models.notifications import StaffNotification
 from app.students.models.users import UserStudent
 from app.students.models.attendance import StudentAttendance
 from app.students.models.payments import StudentPayment
@@ -29,6 +32,8 @@ from app.staff.schemas.students import (
     StudentPaymentRecord,
     StudentPaymentStats,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def get_user_accessible_club_ids(
@@ -446,7 +451,7 @@ async def freeze_membership(
     enrollment_query = (
         select(StudentEnrollment)
         .options(
-            joinedload(StudentEnrollment.group).joinedload(Group.section)
+            joinedload(StudentEnrollment.group).joinedload(Group.section).joinedload(Section.club)
         )
         .where(StudentEnrollment.id == enrollment_id)
     )
@@ -459,6 +464,7 @@ async def freeze_membership(
     # Check permissions
     user_roles = await get_user_roles_in_clubs(session, staff_user_id)
     club_id = enrollment.group.section.club_id
+    club = enrollment.group.section.club
     
     if club_id not in user_roles:
         raise AuthorizationError("You don't have access to this club")
@@ -472,6 +478,11 @@ async def freeze_membership(
     if days > available_freeze_days:
         raise ValidationError(f"Only {available_freeze_days} freeze days available")
     
+    # Get student information for notifications
+    student_query = select(UserStudent).where(UserStudent.id == enrollment.student_id)
+    student_result = await session.execute(student_query)
+    student = student_result.scalar_one_or_none()
+    
     # Apply freeze
     today = date.today()
     enrollment.status = EnrollmentStatus.frozen
@@ -479,6 +490,78 @@ async def freeze_membership(
     enrollment.freeze_end_date = today + timedelta(days=days)
     enrollment.freeze_days_used += days
     enrollment.end_date = enrollment.end_date + timedelta(days=days)
+    
+    # Create notifications for club owners and admins
+    try:
+        # Get all owners and admins of this club
+        staff_recipients_query = (
+            select(UserRole.user_id)
+            .join(Role, UserRole.role_id == Role.id)
+            .where(
+                and_(
+                    UserRole.club_id == club_id,
+                    UserRole.is_active == True,
+                    Role.code.in_([RoleType.owner, RoleType.admin])
+                )
+            )
+        )
+        staff_recipients_result = await session.execute(staff_recipients_query)
+        staff_recipient_ids = [row[0] for row in staff_recipients_result.fetchall()]
+        
+        student_name = f"{student.first_name} {student.last_name or ''}".strip() if student else "Unknown"
+        freeze_end_date = (today + timedelta(days=days)).strftime("%d.%m.%Y")
+        new_membership_end = enrollment.end_date.strftime("%d.%m.%Y")
+        
+        # Create in-app notification for each staff member
+        for recipient_id in staff_recipient_ids:
+            notification = StaffNotification(
+                recipient_id=recipient_id,
+                title="Заморозка абонемента",
+                message=f"Абонемент студента {student_name} заморожен на {days} дней. "
+                        f"Дата окончания заморозки: {freeze_end_date}. "
+                        f"Новая дата окончания абонемента: {new_membership_end}.",
+                metadata_json={
+                    "type": "membership_freeze",
+                    "student_id": enrollment.student_id,
+                    "group_id": enrollment.group_id,
+                    "days": days,
+                    "enrollment_id": enrollment_id,
+                    "club_id": club_id,
+                }
+            )
+            session.add(notification)
+        
+        logger.info(f"Created freeze notifications for {len(staff_recipient_ids)} staff members")
+        
+    except Exception as e:
+        logger.error(f"Failed to create staff notifications: {str(e)}")
+    
+    # Send Telegram notification to student
+    if student and student.telegram_id:
+        try:
+            club_name = club.name if club else "клуба"
+            freeze_end_date = (today + timedelta(days=days)).strftime("%d.%m.%Y")
+            new_membership_end = enrollment.end_date.strftime("%d.%m.%Y")
+            
+            message = (
+                f"❄️ <b>Ваш абонемент заморожен</b>\n\n"
+                f"Клуб: {club_name}\n"
+                f"Количество дней: {days}\n"
+                f"Дата окончания заморозки: {freeze_end_date}\n"
+                f"Новая дата окончания абонемента: {new_membership_end}\n"
+            )
+            if reason:
+                message += f"\nПричина: {reason}"
+            
+            await send_telegram_message(
+                chat_id=student.telegram_id,
+                text=message,
+                bot_type=BotType.STUDENT
+            )
+            logger.info(f"Sent freeze notification to student {student.telegram_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send Telegram notification to student: {str(e)}")
     
     await session.commit()
     await session.refresh(enrollment)
@@ -496,7 +579,7 @@ async def unfreeze_membership(
     enrollment_query = (
         select(StudentEnrollment)
         .options(
-            joinedload(StudentEnrollment.group).joinedload(Group.section)
+            joinedload(StudentEnrollment.group).joinedload(Group.section).joinedload(Section.club)
         )
         .where(StudentEnrollment.id == enrollment_id)
     )
@@ -512,12 +595,19 @@ async def unfreeze_membership(
     # Check permissions
     user_roles = await get_user_roles_in_clubs(session, staff_user_id)
     club_id = enrollment.group.section.club_id
+    club = enrollment.group.section.club
     
     if club_id not in user_roles:
         raise AuthorizationError("You don't have access to this club")
     
+    # Get student information for notifications
+    student_query = select(UserStudent).where(UserStudent.id == enrollment.student_id)
+    student_result = await session.execute(student_query)
+    student = student_result.scalar_one_or_none()
+    
     # Calculate remaining freeze days and adjust end date
     today = date.today()
+    unused_days = 0
     if enrollment.freeze_end_date and enrollment.freeze_end_date > today:
         unused_days = (enrollment.freeze_end_date - today).days
         enrollment.end_date = enrollment.end_date - timedelta(days=unused_days)
@@ -526,6 +616,30 @@ async def unfreeze_membership(
     enrollment.status = EnrollmentStatus.active
     enrollment.freeze_start_date = None
     enrollment.freeze_end_date = None
+    
+    # Send Telegram notification to student
+    if student and student.telegram_id:
+        try:
+            club_name = club.name if club else "клуба"
+            membership_end = enrollment.end_date.strftime("%d.%m.%Y")
+            
+            message = (
+                f"✅ <b>Ваш абонемент разморожен</b>\n\n"
+                f"Клуб: {club_name}\n"
+                f"Дата окончания абонемента: {membership_end}\n"
+            )
+            if unused_days > 0:
+                message += f"\nВозвращено неиспользованных дней заморозки: {unused_days}"
+            
+            await send_telegram_message(
+                chat_id=student.telegram_id,
+                text=message,
+                bot_type=BotType.STUDENT
+            )
+            logger.info(f"Sent unfreeze notification to student {student.telegram_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send Telegram notification to student: {str(e)}")
     
     await session.commit()
     await session.refresh(enrollment)
