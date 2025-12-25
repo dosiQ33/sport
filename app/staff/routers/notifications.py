@@ -78,3 +78,24 @@ async def mark_all_as_read(
 
     await crud_notifications.mark_all_as_read(db, staff.id)
     return {"status": "ok"}
+
+@router.delete("/{notification_id}")
+async def delete_notification(
+    notification_id: int,
+    telegram_data: dict = Depends(get_current_staff_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Delete a notification"""
+    telegram_id = telegram_data.get("id")
+    if not telegram_id:
+        raise HTTPException(status_code=400, detail="Invalid Telegram ID")
+
+    staff = await crud_users.get_user_staff_by_telegram_id(db, telegram_id)
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+
+    deleted = await crud_notifications.delete_notification(db, notification_id, staff.id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    return {"status": "ok", "message": "Notification deleted"}

@@ -62,3 +62,22 @@ async def mark_all_as_read(db: AsyncSession, user_id: int) -> None:
     )
     await db.execute(query)
     await db.commit()
+
+async def delete_notification(db: AsyncSession, notification_id: int, user_id: int) -> bool:
+    """Delete a notification. Returns True if deleted, False if not found."""
+    query = (
+        select(StaffNotification)
+        .where(
+            StaffNotification.id == notification_id,
+            StaffNotification.recipient_id == user_id
+        )
+    )
+    result = await db.execute(query)
+    notification = result.scalar_one_or_none()
+    
+    if not notification:
+        return False
+    
+    await db.delete(notification)
+    await db.commit()
+    return True
