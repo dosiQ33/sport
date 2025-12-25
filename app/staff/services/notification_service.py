@@ -61,6 +61,7 @@ async def get_notification_recipients(
     owner_admin_result = await session.execute(owner_admin_query)
     owner_admin_ids = owner_admin_result.scalars().all()
     recipients.update(owner_admin_ids)
+    logger.debug(f"Found {len(owner_admin_ids)} owners/admins for club {club_id}: {list(owner_admin_ids)}")
     
     # Add coach if group_id is provided
     if include_coach and group_id:
@@ -153,31 +154,48 @@ async def send_membership_notification(
             try:
                 staff_user = await session.get(UserStaff, recipient_id)
                 if not staff_user:
+                    logger.warning(f"Staff user {recipient_id} not found, skipping notification")
                     continue
                 
+                logger.info(f"Notifying staff user {recipient_id} (telegram_id: {staff_user.telegram_id})")
+                
                 # Send Telegram message
+                telegram_sent = False
                 if staff_user.telegram_id:
-                    asyncio.create_task(send_telegram_message(
-                        chat_id=staff_user.telegram_id,
-                        text=notification_config['telegram_message'],
-                        bot_type=BotType.STAFF
-                    ))
+                    try:
+                        telegram_sent = await send_telegram_message(
+                            chat_id=staff_user.telegram_id,
+                            text=notification_config['telegram_message'],
+                            bot_type=BotType.STAFF
+                        )
+                        if telegram_sent:
+                            logger.info(f"Telegram message sent successfully to {staff_user.telegram_id}")
+                        else:
+                            logger.warning(f"Failed to send Telegram message to {staff_user.telegram_id}")
+                    except Exception as tg_error:
+                        logger.error(f"Error sending Telegram message to {staff_user.telegram_id}: {tg_error}", exc_info=True)
+                else:
+                    logger.warning(f"Staff user {recipient_id} has no telegram_id, skipping Telegram notification")
                 
                 # Create in-app notification
-                notification_data = NotificationCreate(
-                    recipient_id=recipient_id,
-                    title=notification_config['title'],
-                    message=notification_config['in_app_message'],
-                    metadata_json={
-                        "type": notification_config['metadata_type'],
-                        "student_id": student_id,
-                        "group_id": group_id,
-                        "club_id": club_id,
-                        **notification_config.get('metadata_extra', {})
-                    }
-                )
-                await create_notification(session, notification_data)
-                logger.debug(f"Successfully created in-app notification for staff user {recipient_id}")
+                try:
+                    notification_data = NotificationCreate(
+                        recipient_id=recipient_id,
+                        title=notification_config['title'],
+                        message=notification_config['in_app_message'],
+                        metadata_json={
+                            "type": notification_config['metadata_type'],
+                            "student_id": student_id,
+                            "group_id": group_id,
+                            "club_id": club_id,
+                            **notification_config.get('metadata_extra', {})
+                        }
+                    )
+                    created_notification = await create_notification(session, notification_data)
+                    logger.info(f"Successfully created in-app notification {created_notification.id} for staff user {recipient_id}")
+                except Exception as notif_error:
+                    logger.error(f"Failed to create in-app notification for staff user {recipient_id}: {notif_error}", exc_info=True)
+                    raise  # Re-raise to be caught by outer exception handler
                 
             except Exception as e:
                 logger.error(f"Failed to notify staff user {recipient_id}: {e}", exc_info=True)

@@ -43,15 +43,17 @@ async def send_telegram_message(
     }
     
     try:
+        logger.debug(f"Sending Telegram message to chat_id {chat_id} using {bot_type} bot")
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, timeout=10.0)
             
             if response.status_code == 200:
+                logger.info(f"Telegram message sent successfully to chat_id {chat_id}")
                 return True
             else:
-                logger.error(f"Failed to send Telegram message ({bot_type}): {response.text}")
+                logger.error(f"Failed to send Telegram message ({bot_type}) to chat_id {chat_id}: HTTP {response.status_code} - {response.text}")
                 return False
                 
     except Exception as e:
-        logger.error(f"Error sending Telegram message ({bot_type}): {str(e)}")
+        logger.error(f"Error sending Telegram message ({bot_type}) to chat_id {chat_id}: {str(e)}", exc_info=True)
         return False

@@ -280,6 +280,7 @@ async def freeze_student_membership(
     # NOTIFICATION: Notify staff (owners, admins, and coach of the group)
     # Re-query enrollment with relationships after commit (objects are expired after commit)
     try:
+        logger.info(f"Starting freeze notification process for enrollment {enrollment.id}, student {student_id}")
         from app.staff.services.notification_service import send_membership_notification
         
         enrollment_for_notification = (
@@ -295,6 +296,7 @@ async def freeze_student_membership(
         enrollment_with_relations = enrollment_result.scalar_one_or_none()
         
         if enrollment_with_relations:
+            logger.info(f"Enrollment {enrollment.id} reloaded with relationships, calling notification service")
             await send_membership_notification(
                 session=session,
                 notification_type='freeze',
@@ -306,6 +308,9 @@ async def freeze_student_membership(
                     'end_date': request.end_date
                 }
             )
+            logger.info(f"Freeze notification process completed for enrollment {enrollment.id}")
+        else:
+            logger.error(f"Failed to reload enrollment {enrollment.id} with relationships for notification")
     except Exception as e:
         # Log error but don't fail the request
         logger.error(f"Failed to send freeze notification: {e}", exc_info=True)
@@ -392,6 +397,7 @@ async def unfreeze_student_membership(
     # NOTIFICATION: Notify staff about unfreeze
     # Re-query enrollment with relationships after commit (objects are expired after commit)
     try:
+        logger.info(f"Starting unfreeze notification process for enrollment {enrollment.id}, student {student_id}")
         from app.staff.services.notification_service import send_membership_notification
         
         enrollment_for_notification = (
@@ -407,6 +413,7 @@ async def unfreeze_student_membership(
         enrollment_with_relations = enrollment_result.scalar_one_or_none()
         
         if enrollment_with_relations:
+            logger.info(f"Enrollment {enrollment.id} reloaded with relationships, calling notification service")
             await send_membership_notification(
                 session=session,
                 notification_type='unfreeze',
@@ -414,6 +421,9 @@ async def unfreeze_student_membership(
                 enrollment=enrollment_with_relations,
                 additional_data={}
             )
+            logger.info(f"Unfreeze notification process completed for enrollment {enrollment.id}")
+        else:
+            logger.error(f"Failed to reload enrollment {enrollment.id} with relationships for notification")
     except Exception as e:
         # Log error but don't fail the request
         logger.error(f"Failed to send unfreeze notification: {e}", exc_info=True)
