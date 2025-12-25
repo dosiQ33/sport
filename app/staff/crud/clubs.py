@@ -248,9 +248,9 @@ async def delete_club(
     from app.staff.models.groups import Group
     from app.staff.models.sections import Section
     from app.staff.models.user_roles import UserRole
+    from app.staff.models.enrollments import StudentEnrollment
     from app.students.models.bookings import LessonBooking
     from app.students.models.attendance import Attendance
-    from app.students.models.enrollments import StudentEnrollment
     
     # 1. Get all section IDs for this club
     section_ids_result = await session.execute(
