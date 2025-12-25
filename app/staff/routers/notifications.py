@@ -5,7 +5,7 @@ from typing import List
 from app.core.database import get_session
 from app.core.dependencies import get_current_staff_user
 from app.staff.crud import notifications as crud_notifications
-from app.staff.crud import invitations as crud_invitations
+from app.staff.crud import users as crud_users
 from app.staff.schemas.notifications import NotificationRead
 
 router = APIRouter(prefix="/staff/notifications", tags=["Staff Notifications"])
@@ -22,7 +22,7 @@ async def get_notifications(
         raise HTTPException(status_code=400, detail="Invalid Telegram ID")
 
     # Get staff user
-    staff = await crud_invitations.get_user_staff_by_telegram_id(db, telegram_id)
+    staff = await crud_users.get_user_staff_by_telegram_id(db, telegram_id)
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
 
@@ -37,7 +37,7 @@ async def get_unread_count(
     if not telegram_id:
         raise HTTPException(status_code=400, detail="Invalid Telegram ID")
 
-    staff = await crud_invitations.get_user_staff_by_telegram_id(db, telegram_id)
+    staff = await crud_users.get_user_staff_by_telegram_id(db, telegram_id)
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
 
@@ -53,7 +53,7 @@ async def mark_as_read(
     if not telegram_id:
         raise HTTPException(status_code=400, detail="Invalid Telegram ID")
 
-    staff = await crud_invitations.get_user_staff_by_telegram_id(db, telegram_id)
+    staff = await crud_users.get_user_staff_by_telegram_id(db, telegram_id)
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
 
@@ -72,7 +72,7 @@ async def mark_all_as_read(
     if not telegram_id:
         raise HTTPException(status_code=400, detail="Invalid Telegram ID")
 
-    staff = await crud_invitations.get_user_staff_by_telegram_id(db, telegram_id)
+    staff = await crud_users.get_user_staff_by_telegram_id(db, telegram_id)
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
 
