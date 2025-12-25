@@ -250,7 +250,7 @@ async def delete_club(
     from app.staff.models.user_roles import UserRole
     from app.staff.models.enrollments import StudentEnrollment
     from app.students.models.bookings import LessonBooking
-    from app.students.models.attendance import Attendance
+    from app.students.models.attendance import StudentAttendance
     
     # 1. Get all section IDs for this club
     section_ids_result = await session.execute(
@@ -280,7 +280,7 @@ async def delete_club(
                 
                 # 5. Delete attendance for these lessons (SET NULL is fine, but let's be explicit)
                 await session.execute(
-                    delete(Attendance).where(Attendance.lesson_id.in_(lesson_ids))
+                    delete(StudentAttendance).where(StudentAttendance.lesson_id.in_(lesson_ids))
                 )
             
             # 6. Delete lessons
