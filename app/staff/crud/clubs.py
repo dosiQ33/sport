@@ -1,5 +1,5 @@
 from typing import Optional
-from sqlalchemy import and_, func, delete
+from sqlalchemy import and_, func, text
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,11 +18,7 @@ from app.staff.models.users import UserStaff
 from app.staff.models.roles import Role, RoleType
 from app.staff.models.user_roles import UserRole
 from app.staff.schemas.clubs import ClubCreate, ClubUpdate
-from app.staff.models.sections import Section
-from app.staff.models.groups import Group
-from app.staff.models.lessons import Lesson
-from app.staff.models.enrollments import StudentEnrollment
-from app.students.models.bookings import LessonBooking
+
 
 
 @db_operation
@@ -255,57 +251,59 @@ async def delete_club(
 
 async def _manual_cascade_delete_club(session: AsyncSession, club_id: int):
     """
-    Manually delete related entities for a club to ensure integrity.
-    This is a fallback/safety measure ensuring all children are deleted
-    even if DB foreign keys are not set to CASCADE correctly.
+    Manually delete related entities for a club using raw SQL to ensure integrity.
+    This bypasses potential ORM loading issues and ensures deep cleaning of
+    orphaned records before the club is deleted.
     """
-    # 1. Find all sections for the club
-    sections_result = await session.execute(
-        select(Section.id).where(Section.club_id == club_id)
-    )
-    section_ids = sections_result.scalars().all()
-    
-    if not section_ids:
-        return
+    # 1. Delete LessonBookings (deepest dependency)
+    # Linked to Lessons -> Groups -> Sections -> Club
+    await session.execute(text("""
+        DELETE FROM lesson_bookings
+        WHERE lesson_id IN (
+            SELECT l.id FROM lessons l
+            JOIN groups g ON l.group_id = g.id
+            JOIN sections s ON g.section_id = s.id
+            WHERE s.club_id = :club_id
+        )
+    """), {"club_id": club_id})
 
-    # 2. Find all groups for these sections
-    groups_result = await session.execute(
-        select(Group.id).where(Group.section_id.in_(section_ids))
-    )
-    group_ids = groups_result.scalars().all()
-    
-    if group_ids:
-        # a. Find all lessons for these groups
-        lessons_result = await session.execute(
-            select(Lesson.id).where(Lesson.group_id.in_(group_ids))
+    # 2. Delete Lessons
+    # Linked to Groups -> Sections -> Club
+    await session.execute(text("""
+        DELETE FROM lessons
+        WHERE group_id IN (
+            SELECT g.id FROM groups g
+            JOIN sections s ON g.section_id = s.id
+            WHERE s.club_id = :club_id
         )
-        lesson_ids = lessons_result.scalars().all()
-        
-        if lesson_ids:
-            # i. Delete LessonBookings
-            await session.execute(
-                delete(LessonBooking).where(LessonBooking.lesson_id.in_(lesson_ids))
-            )
-            
-            # ii. Delete Lessons
-            await session.execute(
-                delete(Lesson).where(Lesson.id.in_(lesson_ids))
-            )
-        
-        # b. Delete StudentEnrollments
-        await session.execute(
-            delete(StudentEnrollment).where(StudentEnrollment.group_id.in_(group_ids))
-        )
+    """), {"club_id": club_id})
 
-        # c. Delete Groups
-        await session.execute(
-            delete(Group).where(Group.id.in_(group_ids))
+    # 3. Delete StudentEnrollments
+    # Linked to Groups -> Sections -> Club
+    await session.execute(text("""
+        DELETE FROM student_enrollments
+        WHERE group_id IN (
+            SELECT g.id FROM groups g
+            JOIN sections s ON g.section_id = s.id
+            WHERE s.club_id = :club_id
         )
+    """), {"club_id": club_id})
     
-    # 3. Delete Sections
-    await session.execute(
-        delete(Section).where(Section.id.in_(section_ids))
-    )
+    # 4. Delete Groups
+    # Linked to Sections -> Club
+    await session.execute(text("""
+        DELETE FROM groups
+        WHERE section_id IN (
+            SELECT id FROM sections WHERE club_id = :club_id
+        )
+    """), {"club_id": club_id})
+
+    # 5. Delete Sections
+    # Linked to Club
+    await session.execute(text("""
+        DELETE FROM sections
+        WHERE club_id = :club_id
+    """), {"club_id": club_id})
 
 
 
