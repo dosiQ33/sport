@@ -440,8 +440,11 @@ async def create_section(
         )
 
         if not check_result["can_create"]:
-            if "limit" in check_result["reason"].lower():
-                raise LimitExceededError("sections", 0, 0)  # Подробности в reason
+            if "limit" in check_result["reason"].lower() and check_result.get("limits_check"):
+                limits_check = check_result["limits_check"]
+                current = limits_check.get("current_sections", 0)
+                max_limit = limits_check.get("max_sections", 0)
+                raise LimitExceededError("sections", max_limit, current)
             else:
                 raise PermissionDeniedError("create", "section", check_result["reason"])
 
