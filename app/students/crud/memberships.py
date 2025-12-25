@@ -276,10 +276,10 @@ async def freeze_student_membership(
     # NOTIFICATION: Notify the coach/staff
     try:
         from app.core.telegram_sender import send_telegram_message
-        from app.students.crud.users import get_student_by_id
+        from app.students.crud.users import get_user_student_by_id
 
         # Get student details for the message
-        student_info = await get_student_by_id(session, student_id)
+        student_info = await get_user_student_by_id(session, student_id)
         student_name = f"{student_info.first_name} {student_info.last_name or ''}".strip()
         
         # Determine who to notify (Coach of the group)
@@ -321,11 +321,12 @@ async def freeze_student_membership(
                 )
                 await create_notification(session, notification_data)
             except Exception as e:
-                    logging.getLogger(__name__).error(f"Failed to create in-app notification: {e}")
+                import logging
+                logging.getLogger(__name__).error(f"Failed to create in-app notification: {e}")
     except Exception as e:
-        # Log error but don't fail the request
         import logging
-        logging.getLogger(__name__).error(f"Failed to send freeze notification: {e}")
+        import traceback
+        logging.getLogger(__name__).error(f"Failed to send freeze notification: {e}\n{traceback.format_exc()}")
     
     # Get full membership data for response
     memberships = await get_student_memberships(session, student_id, include_inactive=True)
