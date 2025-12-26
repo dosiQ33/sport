@@ -26,6 +26,36 @@ from app.students.schemas.payments import (
 )
 
 
+def calculate_validity_days(tariff: Tariff) -> int:
+    """
+    Calculate validity days based on tariff payment_type.
+    
+    Rules:
+    - monthly: 30 days (or use validity_days if explicitly set)
+    - semi_annual: 180 days (6 months)
+    - annual: 365 days (1 year)
+    - session_pack: use validity_days from tariff (required)
+    
+    Args:
+        tariff: Tariff object with payment_type and validity_days
+        
+    Returns:
+        Number of validity days
+    """
+    if tariff.payment_type == "annual":
+        return 365
+    elif tariff.payment_type == "semi_annual":
+        return 180
+    elif tariff.payment_type == "session_pack":
+        # For session_pack, validity_days is required
+        if not tariff.validity_days:
+            raise ValidationError("validity_days is required for session_pack tariffs")
+        return tariff.validity_days
+    else:  # monthly or default
+        # Use validity_days if set, otherwise default to 30 days
+        return tariff.validity_days if tariff.validity_days else 30
+
+
 @db_operation
 async def get_student_payments(
     session: AsyncSession,
@@ -289,8 +319,8 @@ async def complete_payment(
     enrollment = None
     
     if group:
-        # Get validity days from tariff (default 30)
-        validity_days = tariff.validity_days or 30
+        # Calculate validity days based on payment_type
+        validity_days = calculate_validity_days(tariff)
         freeze_days = tariff.freeze_days_total or 0
         
         # Check if student has an existing active enrollment with SAME tariff in SAME group
