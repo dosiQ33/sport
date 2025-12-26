@@ -45,6 +45,10 @@ class MembershipRead(BaseModel):
     tariff_name: Optional[str] = None
     price: float = 0
     
+    # Tariff status - indicates if the tariff was deleted
+    # When true, freeze and extend are not allowed
+    is_tariff_deleted: bool = False
+    
     # Freeze info
     freeze_days_available: int = 0
     freeze_days_used: int = 0

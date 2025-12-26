@@ -433,7 +433,8 @@ async def extend_membership(
     enrollment_query = (
         select(StudentEnrollment)
         .options(
-            joinedload(StudentEnrollment.group).joinedload(Group.section)
+            joinedload(StudentEnrollment.group).joinedload(Group.section),
+            joinedload(StudentEnrollment.tariff)
         )
         .where(StudentEnrollment.id == enrollment_id)
     )
@@ -442,6 +443,12 @@ async def extend_membership(
     
     if not enrollment:
         raise NotFoundError("Enrollment", str(enrollment_id))
+    
+    # Check if current tariff is deleted - cannot extend with deleted tariff
+    if enrollment.tariff and enrollment.tariff.deleted_at is not None:
+        raise ValidationError(
+            "This tariff is no longer available. Extending is not allowed for memberships with discontinued tariffs."
+        )
     
     # Check permissions
     user_roles = await get_user_roles_in_clubs(session, staff_user_id)
@@ -515,7 +522,8 @@ async def freeze_membership(
     enrollment_query = (
         select(StudentEnrollment)
         .options(
-            joinedload(StudentEnrollment.group).joinedload(Group.section).joinedload(Section.club)
+            joinedload(StudentEnrollment.group).joinedload(Group.section).joinedload(Section.club),
+            joinedload(StudentEnrollment.tariff)
         )
         .where(StudentEnrollment.id == enrollment_id)
     )
@@ -524,6 +532,12 @@ async def freeze_membership(
     
     if not enrollment:
         raise NotFoundError("Enrollment", str(enrollment_id))
+    
+    # Check if tariff is deleted - cannot freeze with deleted tariff
+    if enrollment.tariff and enrollment.tariff.deleted_at is not None:
+        raise ValidationError(
+            "This tariff is no longer available. Freezing is not allowed for memberships with discontinued tariffs."
+        )
     
     # Check permissions
     user_roles = await get_user_roles_in_clubs(session, staff_user_id)

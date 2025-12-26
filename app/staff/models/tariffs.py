@@ -48,6 +48,9 @@ class Tariff(Base):
     # Status
     active = Column(Boolean, default=True, nullable=False)
     
+    # Soft delete - when set, tariff is considered deleted
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    
     # Creator
     created_by_id = Column(
         Integer, ForeignKey("user_staff.id", ondelete="SET NULL"), nullable=True
@@ -57,6 +60,11 @@ class Tariff(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    
+    @property
+    def is_deleted(self) -> bool:
+        """Check if tariff is soft deleted"""
+        return self.deleted_at is not None
 
     # Relations
     created_by = relationship("UserStaff", foreign_keys=[created_by_id])

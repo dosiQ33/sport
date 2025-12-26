@@ -251,6 +251,12 @@ async def complete_payment(
     if not tariff:
         raise NotFoundError("Tariff", str(payment.tariff_id))
     
+    # Check if tariff is deleted - cannot complete payment for deleted tariff
+    if tariff.deleted_at is not None:
+        raise ValidationError(
+            "This tariff is no longer available. Please choose a different tariff."
+        )
+    
     # Find a group to enroll the student in
     group = None
     

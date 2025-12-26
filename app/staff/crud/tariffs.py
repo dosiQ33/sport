@@ -12,16 +12,32 @@ from app.staff.models.groups import Group
 from app.staff.schemas.tariffs import TariffCreate, TariffUpdate
 
 
-async def get_tariff_by_id(db: AsyncSession, tariff_id: int) -> Tariff:
-    """Get tariff by ID with creator info"""
-    result = await db.execute(
+async def get_tariff_by_id(
+    db: AsyncSession, 
+    tariff_id: int, 
+    include_deleted: bool = True
+) -> Tariff:
+    """Get tariff by ID with creator info.
+    
+    Args:
+        db: Database session
+        tariff_id: Tariff ID to look up
+        include_deleted: If False, raises NotFoundError for deleted tariffs.
+                        Default is True to allow looking up deleted tariffs for existing enrollments.
+    """
+    query = (
         select(Tariff)
         .options(selectinload(Tariff.created_by))
         .where(Tariff.id == tariff_id)
     )
+    
+    result = await db.execute(query)
     tariff = result.scalar_one_or_none()
     
     if not tariff:
+        raise NotFoundError("Tariff", f"Tariff with id {tariff_id} not found")
+    
+    if not include_deleted and tariff.deleted_at is not None:
         raise NotFoundError("Tariff", f"Tariff with id {tariff_id} not found")
     
     return tariff
@@ -163,6 +179,7 @@ async def get_tariffs_by_user(
     user_id: int,
     skip: int = 0,
     limit: int = 100,
+    include_deleted: bool = False,
 ) -> List[Tariff]:
     """Get all tariffs for clubs where user is owner/admin"""
     # Get user's club IDs
@@ -173,12 +190,20 @@ async def get_tariffs_by_user(
     
     # Find tariffs that include any of user's clubs
     # Build precise JSON array containment conditions
-    conditions = build_json_array_contains_conditions(Tariff.club_ids, user_club_ids)
+    club_conditions = build_json_array_contains_conditions(Tariff.club_ids, user_club_ids)
     
-    result = await db.execute(
+    query = (
         select(Tariff)
         .options(selectinload(Tariff.created_by))
-        .where(or_(*conditions))
+        .where(or_(*club_conditions))
+    )
+    
+    # Filter out deleted tariffs unless explicitly requested
+    if not include_deleted:
+        query = query.where(Tariff.deleted_at.is_(None))
+    
+    result = await db.execute(
+        query
         .order_by(Tariff.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -195,6 +220,7 @@ async def get_tariffs_paginated(
     payment_type: Optional[str] = None,
     name: Optional[str] = None,
     active_only: bool = True,
+    include_deleted: bool = False,
 ) -> Tuple[List[Tariff], int]:
     """Get paginated list of tariffs with filters"""
     
@@ -204,6 +230,10 @@ async def get_tariffs_paginated(
     
     # Apply filters
     conditions = []
+    
+    # Filter out deleted tariffs unless explicitly requested
+    if not include_deleted:
+        conditions.append(Tariff.deleted_at.is_(None))
     
     if club_id:
         # Use precise JSON array containment check
@@ -361,10 +391,20 @@ async def update_tariff(
 
 
 async def delete_tariff(db: AsyncSession, tariff_id: int, user_id: int) -> None:
-    """Delete a tariff"""
+    """Soft delete a tariff by setting deleted_at timestamp.
+    
+    The tariff remains in the database for historical reference,
+    but is hidden from selection lists and new purchases.
+    Existing active memberships continue to work but cannot be extended or frozen.
+    """
+    from datetime import datetime, timezone
     
     # Get tariff
     tariff = await get_tariff_by_id(db, tariff_id)
+    
+    # Check if already deleted
+    if tariff.deleted_at is not None:
+        raise ValidationError("Tariff is already deleted")
     
     # Check permission
     user_club_ids = await get_user_club_ids(db, user_id)
@@ -377,7 +417,10 @@ async def delete_tariff(db: AsyncSession, tariff_id: int, user_id: int) -> None:
     if not tariff_clubs.intersection(set(user_club_ids)):
         raise PermissionDeniedError("delete", "tariff", "You don't have access to this tariff")
     
-    await db.delete(tariff)
+    # Soft delete - set deleted_at timestamp
+    tariff.deleted_at = datetime.now(timezone.utc)
+    tariff.active = False  # Also deactivate to prevent any usage
+    
     await db.commit()
 
 

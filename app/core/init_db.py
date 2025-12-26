@@ -31,6 +31,12 @@ async def run_migrations():
             "check": "SELECT 1 FROM pg_enum WHERE enumlabel = 'scheduled' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'enrollmentstatus')",
             "apply": "ALTER TYPE enrollmentstatus ADD VALUE IF NOT EXISTS 'scheduled'",
         },
+        # Add deleted_at column to tariffs table for soft delete
+        {
+            "name": "add_tariffs_deleted_at_column",
+            "check": "SELECT column_name FROM information_schema.columns WHERE table_name='tariffs' AND column_name='deleted_at'",
+            "apply": "ALTER TABLE tariffs ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE NULL; CREATE INDEX IF NOT EXISTS ix_tariffs_deleted_at ON tariffs(deleted_at)",
+        },
     ]
     
     async with engine.begin() as conn:

@@ -15,6 +15,7 @@ from app.staff.models.groups import Group
 from app.staff.models.sections import Section
 from app.staff.models.clubs import Club
 from app.staff.models.users import UserStaff
+from app.staff.models.tariffs import Tariff
 from app.students.models.users import UserStudent
 from app.students.schemas.memberships import (
     MembershipRead,
@@ -39,13 +40,15 @@ async def get_student_memberships(
             Group,
             Section,
             Club,
-            UserStaff
+            UserStaff,
+            Tariff
         )
         .select_from(StudentEnrollment)
         .join(Group, StudentEnrollment.group_id == Group.id)
         .join(Section, Group.section_id == Section.id)
         .join(Club, Section.club_id == Club.id)
         .outerjoin(UserStaff, Group.coach_id == UserStaff.id)
+        .outerjoin(Tariff, StudentEnrollment.tariff_id == Tariff.id)
         .where(StudentEnrollment.student_id == student_id)
     )
     
@@ -66,7 +69,7 @@ async def get_student_memberships(
     
     memberships = []
     for row in rows:
-        enrollment, group, section, club, coach = row
+        enrollment, group, section, club, coach, tariff = row
         
         coach_name = None
         if coach:
@@ -74,6 +77,9 @@ async def get_student_memberships(
         
         # Calculate freeze days available
         freeze_days_available = (enrollment.freeze_days_total or 0) - (enrollment.freeze_days_used or 0)
+        
+        # Check if tariff is deleted (soft delete)
+        is_tariff_deleted = tariff is not None and tariff.deleted_at is not None
         
         memberships.append(MembershipRead(
             id=enrollment.id,
@@ -91,6 +97,7 @@ async def get_student_memberships(
             tariff_id=enrollment.tariff_id,
             tariff_name=enrollment.tariff_name,
             price=float(enrollment.price) if enrollment.price else 0,
+            is_tariff_deleted=is_tariff_deleted,
             freeze_days_available=freeze_days_available,
             freeze_days_used=enrollment.freeze_days_used or 0,
             freeze_start_date=enrollment.freeze_start_date,
@@ -206,13 +213,14 @@ async def freeze_student_membership(
     request: FreezeMembershipRequest
 ) -> MembershipRead:
     """Freeze a student's membership"""
-    # Get enrollment with all necessary relationships
+    # Get enrollment with all necessary relationships including tariff
     enrollment_query = (
         select(StudentEnrollment)
         .options(
             joinedload(StudentEnrollment.group)
             .joinedload(Group.section)
-            .joinedload(Section.club)
+            .joinedload(Section.club),
+            joinedload(StudentEnrollment.tariff)
         )
         .where(
             and_(
@@ -229,6 +237,12 @@ async def freeze_student_membership(
     
     if enrollment.status not in [EnrollmentStatus.active, EnrollmentStatus.new]:
         raise ValidationError("Can only freeze active memberships")
+    
+    # Check if tariff is deleted - cannot freeze with deleted tariff
+    if enrollment.tariff and enrollment.tariff.deleted_at is not None:
+        raise ValidationError(
+            "This tariff is no longer available. Freezing is not allowed for memberships with discontinued tariffs."
+        )
     
     # Validate that start date is at least tomorrow
     today = date.today()
