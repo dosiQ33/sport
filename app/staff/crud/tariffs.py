@@ -312,6 +312,7 @@ async def create_tariff(
         sessions_count=tariff_data.sessions_count,
         validity_days=tariff_data.validity_days,
         freeze_days_total=tariff_data.freeze_days_total,
+        features=tariff_data.features or [],
         active=tariff_data.active,
         created_by_id=user_id,
     )
