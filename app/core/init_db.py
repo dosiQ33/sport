@@ -35,7 +35,13 @@ async def run_migrations():
         {
             "name": "add_tariffs_deleted_at_column",
             "check": "SELECT column_name FROM information_schema.columns WHERE table_name='tariffs' AND column_name='deleted_at'",
-            "apply": "ALTER TABLE tariffs ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE NULL; CREATE INDEX IF NOT EXISTS ix_tariffs_deleted_at ON tariffs(deleted_at)",
+            "apply": "ALTER TABLE tariffs ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE NULL",
+        },
+        # Add index on deleted_at column
+        {
+            "name": "add_tariffs_deleted_at_index",
+            "check": "SELECT indexname FROM pg_indexes WHERE tablename='tariffs' AND indexname='ix_tariffs_deleted_at'",
+            "apply": "CREATE INDEX ix_tariffs_deleted_at ON tariffs(deleted_at)",
         },
     ]
     
