@@ -351,7 +351,7 @@ async def complete_payment(
         else:
             # Check if student has ANY active membership in this CLUB
             club_enrollment_query = (
-                select(StudentEnrollment)
+                select(StudentEnrollment, Group, Section)
                 .join(Group, StudentEnrollment.group_id == Group.id)
                 .join(Section, Group.section_id == Section.id)
                 .where(
@@ -368,9 +368,52 @@ async def complete_payment(
                 .order_by(StudentEnrollment.end_date.desc())
             )
             club_enrollment_result = await session.execute(club_enrollment_query)
-            active_club_enrollment = club_enrollment_result.scalar_one_or_none()
+            active_club_enrollments = club_enrollment_result.fetchall()
             
-            if active_club_enrollment:
+            # Check if new tariff overlaps with any active membership
+            # Only schedule if there's overlap (same groups/sections) or if it's an upgrade
+            has_overlap = False
+            overlapping_enrollment = None
+            
+            if active_club_enrollments:
+                # Get the new tariff's coverage
+                new_tariff_group_ids = set(tariff.group_ids or [])
+                new_tariff_section_ids = set(tariff.section_ids or [])
+                new_tariff_type = tariff.type
+                
+                # Check each active enrollment for overlap
+                for enrollment_row in active_club_enrollments:
+                    active_enrollment, active_group, active_section = enrollment_row
+                    
+                    # Check if new tariff overlaps with this active membership
+                    overlap = False
+                    
+                    # Case 1: New tariff is full_club - overlaps with everything in club
+                    if new_tariff_type == 'full_club':
+                        overlap = True
+                    
+                    # Case 2: New tariff includes the active group
+                    elif active_group.id in new_tariff_group_ids:
+                        overlap = True
+                    
+                    # Case 3: New tariff includes the active section
+                    elif active_section.id in new_tariff_section_ids:
+                        overlap = True
+                    
+                    # Case 4: New tariff is full_section and includes active section
+                    elif new_tariff_type == 'full_section' and active_section.id in new_tariff_section_ids:
+                        overlap = True
+                    
+                    # Case 5: Active membership's group is in new tariff's groups
+                    elif new_tariff_group_ids and active_group.id in new_tariff_group_ids:
+                        overlap = True
+                    
+                    if overlap:
+                        has_overlap = True
+                        overlapping_enrollment = active_enrollment
+                        break
+            
+            if has_overlap and overlapping_enrollment:
                 # Check if there's already a scheduled membership in this club
                 # Limit: only 1 scheduled membership per club allowed
                 scheduled_check_query = (
@@ -394,9 +437,9 @@ async def complete_payment(
                         "Only one scheduled membership is allowed per club."
                     )
                 
-                # CASE 2: Different tariff but has active membership → SCHEDULE after current ends
+                # CASE 2: Different tariff but overlaps with active membership → SCHEDULE after current ends
                 # New membership starts the day after current one ends
-                start_date = active_club_enrollment.end_date + timedelta(days=1)
+                start_date = overlapping_enrollment.end_date + timedelta(days=1)
                 end_date = start_date + timedelta(days=validity_days)
                 
                 enrollment = StudentEnrollment(
