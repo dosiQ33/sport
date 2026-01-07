@@ -13,9 +13,14 @@ class LessonBase(BaseModel):
     duration_minutes: int = Field(90, ge=30, le=300, description="Duration in minutes")
     coach_id: int = Field(..., gt=0, description="Coach ID is required")
     location: Optional[str] = Field(None, max_length=255, description="Lesson location")
-    notes: Optional[str] = Field(None, max_length=1000, description="Additional notes")
+    # Accept both `notes` and legacy `note` field names from various frontends
+    notes: Optional[str] = Field(
+        None, max_length=1000, description="Additional notes", alias="note"
+    )
 
-    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+    model_config = ConfigDict(
+        from_attributes=True, str_strip_whitespace=True, populate_by_name=True
+    )
 
 
 class LessonCreate(LessonBase):
@@ -39,9 +44,11 @@ class LessonUpdate(BaseModel):
         None, gt=0, description="Coach ID must be positive if provided"
     )
     location: Optional[str] = Field(None, max_length=255)
-    notes: Optional[str] = Field(None, max_length=1000)
+    notes: Optional[str] = Field(None, max_length=1000, alias="note")
 
-    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+    model_config = ConfigDict(
+        from_attributes=True, str_strip_whitespace=True, populate_by_name=True
+    )
 
 
 # Схемы для переноса/отмены занятий
@@ -71,13 +78,13 @@ class LessonComplete(BaseModel):
     """Схема для отметки о проведении занятия"""
 
     notes: Optional[str] = Field(
-        None, max_length=1000, description="Lesson completion notes"
+        None, max_length=1000, description="Lesson completion notes", alias="note"
     )
     actual_duration: Optional[int] = Field(
         None, ge=15, le=300, description="Actual duration if different"
     )
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # Информационные схемы для связанных объектов

@@ -296,7 +296,7 @@ async def freeze_student_membership(
         scheduled.end_date = scheduled.end_date + timedelta(days=freeze_days)
     
     await session.commit()
-    
+
     # NOTIFICATION: Notify staff (owners, admins, and coach of the group)
     # Re-query enrollment with relationships after commit (objects are expired after commit)
     try:
@@ -326,8 +326,8 @@ async def freeze_student_membership(
                     'days': freeze_days,
                     'start_date': request.start_date,
                     'end_date': request.end_date
-                }
-            )
+                    }
+                )
             logger.info(f"Freeze notification process completed for enrollment {enrollment.id}")
         else:
             logger.error(f"Failed to reload enrollment {enrollment.id} with relationships for notification")
